@@ -1091,6 +1091,7 @@ function renderPhone(){
   const b=$('#phBody');let h='';
   if(phoneTab==='jobs'){
     const q=QUESTS[state.quest];
+    h+=`<div class="ph-card"><span class="meta">Drop plane</span><h4>Jump again</h4><p>Call the drop plane and skydive anywhere in the city. Also on B, or step on a glowing launch pad.</p><button data-act="drop">Call the plane</button></div>`;
     h+=`<div class="ph-card"><span class="meta">Main objective</span><h4>${esc(q.title)}</h4><p>${esc(q.text())}</p></div>`;
     if(state.job){const J=state.job;h+=`<div class="ph-card on"><span class="meta">In progress</span><h4>${esc(JOB_INFO[J.id].title)}</h4><p>${esc(jobText(J))}</p><button data-act="abandon">Drop this job</button></div>`;}
     if(masters.pieces.length){const gp=galleryProgress();h+=`<div class="ph-card${state.gallery.done?'':' on'}"><span class="meta">Gallery Walk${state.gallery.done?' · complete':''}</span><h4>Admire the masters</h4><p>Walk up to art by Monet, Van Gogh, Picasso and Dalí and press E to admire it. ${gp.n} of 8 pieces, ${gp.artists} of 4 artists. Finishing unlocks two outfits.</p></div>`;}
@@ -1101,12 +1102,13 @@ function renderPhone(){
       else if(g)h+=`<button data-act="way" data-id="${id}">Set waypoint</button>`;
       h+='</div>';}
   }else if(phoneTab==='wear'){
+    if(PR&&PR.GLIDERS){h+='<h5>Gliders</h5>';const have=state.gliders||['parachute'];for(const gl of PR.GLIDERS){const ok=have.includes(gl.id);const on=state.glider===gl.id;h+=`<div class="ph-card${on?' on':''}"><span class="meta">${ok?(on?'Flying this one':'Unlocked'):'Unlocks as you skydive'}</span><h4>${esc(gl.name)}</h4><p>${esc(gl.blurb)}</p>${ok&&!on?`<button data-act="glider" data-id="${gl.id}">Fly this</button>`:''}</div>`;}h+='<h5>Outfits</h5>';}
     h+=`<div class="ph-card"><span class="meta">Good vibes</span><h4>${state.karma}</h4><p>Earn good vibes by gifting, finishing side jobs and being there for the burns. They unlock outfits.</p></div>`;
     for(const o of OUTFITS){const ok=state.karma>=o.need&&(!o.unlock||state.unlocks[o.unlock]);const on=state.outfit===o.id;
       h+=`<div class="ph-card${on?' on':''}"><span class="meta">${ok?(on?'Wearing now':'Unlocked'):o.unlock?'Finish the Gallery Walk':`Needs ${o.need} good vibes`}</span><h4>${esc(o.name)}</h4><div class="swatch"><i style="background:${hex(o.o.body)}"></i><i style="background:${hex(o.o.cape)}"></i><i style="background:${hex(o.o.hat)}"></i><i style="background:${hex(o.o.neon)}"></i></div><button data-act="wear" data-id="${o.id}" ${ok&&!on?'':'disabled'}>${on?'Wearing':'Wear'}</button></div>`;}
   }else{
     const st=state.stats;const km=x=>(x/1000).toFixed(2)+' km';
-    const rows=[['Good vibes',state.karma],['Gifts given',state.given],['Walked',km(st.walked)],['Ridden and driven',km(st.driven)],['Flame cannon blasts',st.poofs],['Shuttle fares',st.fares],['Side jobs finished',st.jobs],['Saw the Man burn',state.sawMan?'Yes':'Not yet'],['Saw the Temple burn',state.sawTemple?'Yes':'Not yet'],['Ranger chats',st.rangers],['Bike stunts landed',st.stunts||0],['High fives',st.fives||0],['Surreal conversations',st.surreal||0],['Soft clocks',dali.clocks.filter(c=>c.got).length+' of 7'],['Skydives',st.skydives||0],['Masterpieces admired',Object.keys(state.gallery.admired).length]];
+    const rows=[['Good vibes',state.karma],['Gifts given',state.given],['Walked',km(st.walked)],['Ridden and driven',km(st.driven)],['Flame cannon blasts',st.poofs],['Shuttle fares',st.fares],['Side jobs finished',st.jobs],['Saw the Man burn',state.sawMan?'Yes':'Not yet'],['Saw the Temple burn',state.sawTemple?'Yes':'Not yet'],['Ranger chats',st.rangers],['Bike stunts landed',st.stunts||0],['High fives',st.fives||0],['Surreal conversations',st.surreal||0],['Soft clocks',dali.clocks.filter(c=>c.got).length+' of 7'],['Skydives',st.skydives||0],['Masterpieces admired',Object.keys(state.gallery.admired).length],['Paint shots fired',st.shots||0],['Rangers splashed',st.stunned||0],['Clean getaways',st.escapes||0],['Favorite gun',(()=>{const u=st.gunUse||{};const k=Object.keys(u).sort((a,b)=>u[b]-u[a])[0];return k&&WP?WDEF(k).name:'None yet';})()]];
     h+='<div class="ph-card">'+rows.map(r=>`<div class="stat"><span>${r[0]}</span><b>${r[1]}</b></div>`).join('')+'</div>';
   }
   b.innerHTML=h;
@@ -1117,6 +1119,8 @@ $('#phBody').addEventListener('click',e=>{
   else if(act==='shuttle'){closePhone();startJob('shuttle');return;}
   else if(act==='way'){const g=Object.values(GIVERS).find(x=>x.job===id);state.waypoint=g.pos.clone();toast(`Waypoint set: ${g.name}.`);closePhone();return;}
   else if(act==='wear'){wearOutfit(id);}
+  else if(act==='glider'){state.glider=id;floatText('Glider: '+id);saveGame();}
+  else if(act==='drop'){closePhone();if(state.wanted>=1)toast('The drop plane won’t pick you up while the Rangers are after you.');else startDrop(false);return;}
   renderPhone();
 });
 
@@ -1424,15 +1428,16 @@ function setupTouch(){
   joy.addEventListener('touchend',end);joy.addEventListener('touchcancel',end);
   let lid=null,lx=0,ly=0;
   canvas.addEventListener('touchstart',e=>{const t=e.changedTouches[0];if(lid===null){lid=t.identifier;lx=t.clientX;ly=t.clientY;}},{passive:true});
-  canvas.addEventListener('touchmove',e=>{e.preventDefault();for(const t of e.changedTouches)if(t.identifier===lid){camYaw-=(t.clientX-lx)*.007*settings.sens;camPitch=clamp(camPitch+(t.clientY-ly)*.005*settings.sens*(settings.invert?-1:1),.02,1.25);lx=t.clientX;ly=t.clientY;lastLook=performance.now();}},{passive:false});
+  canvas.addEventListener('touchmove',e=>{e.preventDefault();for(const t of e.changedTouches)if(t.identifier===lid){camYaw-=(t.clientX-lx)*.007*settings.sens;camPitch=clamp(camPitch+(t.clientY-ly)*.005*settings.sens*(settings.invert?-1:1),armed()?-.55:.02,1.25);lx=t.clientX;ly=t.clientY;lastLook=performance.now();}},{passive:false});
   const lend=e=>{for(const t of e.changedTouches)if(t.identifier===lid)lid=null;};canvas.addEventListener('touchend',lend);canvas.addEventListener('touchcancel',lend);
   for(const b of document.querySelectorAll('#touchUI [data-k]')){
-    b.addEventListener('touchstart',e=>{e.preventDefault();const k=b.dataset.k;if(k==='Run'){touch.run=!touch.run;b.classList.toggle('on',touch.run);return;}if(k==='Space'){touch.jump=true;return;}handleKey(k);},{passive:false});
-    b.addEventListener('click',()=>{const k=b.dataset.k;if(k!=='Run'&&k!=='Space')handleKey(k);});
+    b.addEventListener('touchstart',e=>{e.preventDefault();const k=b.dataset.k;if(k==='Run'){touch.run=!touch.run;b.classList.toggle('on',touch.run);return;}if(k==='Space'){touch.jump=true;return;}if(k==='Fire'){mouse.l=true;W.trigger=true;return;}if(k==='Aim'){mouse.r=!mouse.r;b.classList.toggle('on',mouse.r);return;}if(k==='Swap'){cycleWeapon(1);return;}handleKey(k);},{passive:false});
+    if(b.dataset.k==='Fire'){const up=()=>{mouse.l=false;};b.addEventListener('touchend',up);b.addEventListener('touchcancel',up);}
+    b.addEventListener('click',()=>{const k=b.dataset.k;if(k!=='Run'&&k!=='Space'&&k!=='Fire'&&k!=='Aim'&&k!=='Swap')handleKey(k);});
   }
   if(window.innerHeight>window.innerWidth)setTimeout(()=>toast('Turn your phone sideways for the best view.'),1500);
 }
-function updateTouchUI(){if(!touch.on)return;const art=!!(P.vehicle&&P.vehicle.kind==='art');for(const b of document.querySelectorAll('#touchUI .art'))b.hidden=!art;$('#tRun').hidden=art;}
+function updateTouchUI(){if(!touch.on)return;for(const b of document.querySelectorAll('#touchUI .gun'))b.hidden=!armed();const art=!!(P.vehicle&&P.vehicle.kind==='art');for(const b of document.querySelectorAll('#touchUI .art'))b.hidden=!art;$('#tRun').hidden=art;}
 
 // ================= burner chatter =================
 const LINES=['Happy burn!','Welcome home!','Nice wings!','Want a hug?','Hydrate!','Love your hat!','Seen my camp?','Dust is love','Free pickles at 4:30!','Best week ever','Is it Tuesday?','Phoenix! Woo!','Sunscreen?','Ride safe!','Radical inclusion!','Got a light?'];
@@ -1996,6 +2001,7 @@ function landSkydive(){
   const dMan=Math.hypot(P.pos.x,P.pos.z),dCamp=d2(P.pos,CAMP);const ff=(S.freefall||S.t).toFixed(0);
   state.stats.skydives=(state.stats.skydives||0)+1;
   if(S.drop)onDropLanded(S.first);
+  unlockGlider();
   if(!S.canopy){stuntText('Phoenix rises','No parachute? No problem. Ashes to wings.');for(let k=0;k<3;k++)setTimeout(()=>{for(const pv of[P.pos])for(let i=0;i<40;i++)emitTrail(pv.x+R(-2,2),pv.y+R(0,3),pv.z+R(-2,2),2);},k*120);addKarma(5,'skydive');return;}
   if(dMan<45){stuntText('Bullseye on the Man',`${ff}s of freefall from ${Math.round(S.top)} m`);addKarma(30,'bullseye landing');}
   else if(dCamp<25){stuntText('Landed at camp',`${ff}s of freefall. Your campmates applaud.`);addKarma(20,'home landing');}
@@ -2083,7 +2089,7 @@ function startDrop(first){
   if(state.weapon&&W.gun)W.gun.g.visible=false;
   sfx.chime();
   if(first)showTitleCard();
-  toast(first?'The drop plane is crossing the city. Press Space to jump when you are over a spot you like.':'The drop plane is overhead. Space to jump.');
+  toast(first?(touch.on?'The drop plane is crossing the city. Tap Jump when you are over a spot you like.':'The drop plane is crossing the city. Press Space to jump when you are over a spot you like.'):'The drop plane is overhead. Space to jump.');
 }
 function updateDropRide(dt,inp){
   const D=drop.active,pl=drop.plane;D.t+=dt;P.ride.t=D.t;
@@ -2189,7 +2195,7 @@ function giveWeapon(id,why){
   if(!WP)return;const def=WDEF(id);if(!def)return;
   const isNew=!state.weapons.includes(id);if(isNew)state.weapons.push(id);
   equip(id,true);if(audio.ctx)WP.weaponSound(id,audio.ctx,audio.sfx,'pickup');
-  if(isNew){stuntText(def.name,def.blurb);if(state.weapons.length===1)setTimeout(()=>toast('Left mouse to fire, right mouse to aim. 1–0 or the mouse wheel switch guns, Q puts it away. Ammo never runs out. Splash a Ranger and they’ll be stunned for a bit.'),2200);}
+  if(isNew){stuntText(def.name,def.blurb);if(state.weapons.length===1)setTimeout(()=>toast(touch.on?'Hold Fire to shoot, tap Aim to zoom, Swap to change guns. Ammo never runs out. Splash a Ranger and they’ll be stunned for a bit.':'Left mouse to fire, right mouse to aim. 1–0 or the mouse wheel switch guns, Q puts it away. Ammo never runs out. Splash a Ranger and they’ll be stunned for a bit.'),2200);}
   renderHotbar();saveGame();
 }
 function cycleWeapon(dir){if(!WP||!state.weapons.length)return;const ids=WP.WEAPONS.map(w=>w.id).filter(id=>state.weapons.includes(id));let i=ids.indexOf(state.weapon);i=(i+dir+ids.length)%ids.length;equip(ids[i]);}
@@ -2407,7 +2413,7 @@ function updateManhunt(dt){
     if(P.flying||P.sky)setWanted(state.wanted+dt*.25);
     if(RG.chaseMsgT<=0&&st===0){RG.chaseMsgT=20;toast('A Ranger spotted you! Break line of sight, hide in a porta-potty, blend into a dancing crowd, or grab a new costume.');}
     for(const r of RG.list){if(r.st!=='chase'&&!r.fx&&d2(r.pos,f)<60&&r.st!=='search'){r.st='search';r.stT=0;r.target.copy(f);}}
-  }else if(st>0){RG.seenT+=dt;const need=7+st*3;if(RG.seenT>need){RG.seenT=0;setWanted(state.wanted-1);if(wantedStars()===0){toast(pick(LOST_LINES).replace(/^/,'Ranger radio: "')+'"');floatText('You got away');addKarma(5,'clean getaway');for(const r of RG.list){if(r.st!=='patrol'){r.st='patrol';newPatrol(r);}}}}}
+  }else if(st>0){RG.seenT+=dt;const need=7+st*3;if(RG.seenT>need){RG.seenT=0;setWanted(state.wanted-1);if(wantedStars()===0){toast(pick(LOST_LINES).replace(/^/,'Ranger radio: "')+'"');floatText('You got away');addKarma(5,'clean getaway');state.stats.escapes=(state.stats.escapes||0)+1;for(const r of RG.list){if(r.st!=='patrol'){r.st='patrol';newPatrol(r);}}}}}
   RG.chaseMsgT-=dt;
   grade.uniforms.uAlert.value=lerp(grade.uniforms.uAlert.value,st>0&&RG.seenT<1.5?Math.min(1,.4+st*.15):0,Math.min(1,dt*3));
   updateHides(dt);updateRacks(dt);
@@ -2494,6 +2500,7 @@ function useRack(k){
   oneShot(player,'Interact',.9);sfx.chime();
 }
 
+function unlockGlider(){const order=['parachute','phoenix','butterfly','balloon'];state.gliders=state.gliders||['parachute'];const next=order.find(x=>!state.gliders.includes(x));const n=state.stats.skydives||0;if(next&&n>=order.indexOf(next)*2-1){state.gliders.push(next);state.glider=next;const gl=PR&&PR.GLIDERS&&PR.GLIDERS.find(x=>x.id===next);setTimeout(()=>stuntText('New glider: '+(gl?gl.name:next),'Equipped. Change it in the phone wardrobe (Tab).'),2600);}}
 function onDropLanded(first){
   RG.grace=first?50:20;for(const r of RG.list){if(d2(r.pos,P.pos)<70&&r.st!=='chase'){r.pos.copy(rangerSpawnPoint(90,170));newPatrol(r);}}
   if(WP&&!state.weapons.includes(WP.START_WEAPON)){setTimeout(()=>giveWeapon(WP.START_WEAPON),900);}
@@ -2834,7 +2841,21 @@ function update(dt,rdt){rdt=rdt||dt;
     const ev=P.vehicle&&P.vehicle.kind==='art'?Math.abs(P.vehicle.speed):-1;const rv=ranger.active?clamp(1-d2(ranger.pos,focusPos())/90,0,1):0;
     audio.engine.g.gain.setTargetAtTime(ev>=0?.05+ev*.007:rv*.06,t,.2);const ef=ev>=0?38+ev*1.5:45+ranger.speed*2;audio.engine.o1.frequency.setTargetAtTime(ef,t,.2);audio.engine.o2.frequency.setTargetAtTime(ef*1.51,t,.2);}
   }
+  updateTension(dt);
   hudTimer-=dt;if(hudTimer<=0){hudTimer=.1;updateHUD();updateTouchUI();}
+}
+// chase score: a pulsing bass + ticking hi-hat that grows with the wanted level
+let TN=null;
+function updateTension(dt){
+  const a=audio;if(!a.ctx)return;const ctx=a.ctx;
+  if(!TN){TN={g:ctx.createGain(),b:ctx.createOscillator(),b2:ctx.createOscillator(),lfo:ctx.createOscillator(),lg:ctx.createGain(),f:ctx.createBiquadFilter(),t:0,tick:0};
+    TN.g.gain.value=0;TN.b.type='sawtooth';TN.b.frequency.value=55;TN.b2.type='square';TN.b2.frequency.value=82.4;TN.f.type='lowpass';TN.f.frequency.value=380;
+    TN.lfo.frequency.value=2;TN.lg.gain.value=.5;TN.lfo.connect(TN.lg);
+    const pulse=ctx.createGain();pulse.gain.value=.5;TN.lg.connect(pulse.gain);
+    TN.b.connect(TN.f);TN.b2.connect(TN.f);TN.f.connect(pulse);pulse.connect(TN.g);TN.g.connect(a.sfx);TN.b.start();TN.b2.start();TN.lfo.start();}
+  const st=wantedStars();const seen=st>0&&RG.seenT<2;const lvl=st===0?0:(seen?.05+st*.022:.03+st*.01);const t=ctx.currentTime;
+  TN.g.gain.setTargetAtTime(lvl,t,.6);TN.lfo.frequency.setTargetAtTime(seen?2+st*.5:1.2,t,.5);TN.f.frequency.setTargetAtTime(seen?420+st*160:300,t,.5);
+  if(st>0){TN.tick-=dt;if(TN.tick<=0){TN.tick=seen?.25:.5;const o=ctx.createBufferSource();if(!TN.nb){const n=ctx.createBuffer(1,2205,44100);const d=n.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*(1-i/d.length);TN.nb=n;}o.buffer=TN.nb;const hp=ctx.createBiquadFilter();hp.type='highpass';hp.frequency.value=7000;const gg=ctx.createGain();gg.gain.value=lvl*.9;o.connect(hp);hp.connect(gg);gg.connect(a.sfx);o.start();}}
 }
 function fenceMsg(){if(performance.now()-lastFenceMsg>6000){lastFenceMsg=performance.now();toast('That is the trash fence. Nothing out there but more dust.');}}
 function updateRanger(dt){
@@ -2857,6 +2878,7 @@ function updateRanger(dt){
   ranger.g.rotation.y=ranger.heading;
   if(stars>0&&d2(ranger.pos,f)<(P.vehicle?P.vehicle.r+3:3.5)){
     sfx.ranger();
+    if(!P.vehicle){caught(null);return;}
     modal('Ranger chat','A Ranger in khaki pulls alongside, calm as anything. "Hey Phoenix. Art cars roll at 5 mph out here, there are people walking everywhere in the dark. Let’s take a breather and hand the wheel back."','Fair enough',()=>{state.stats.rangers++;if(state.job&&state.job.id==='shuttle')endJob(false,'The Ranger hands the art car back to its crew. Shuttle run over.',0);if(P.vehicle)exitVehicle();state.wanted=0;RG.seenT=0;const sp=RG.outpostSpot;if(sp&&!P.vehicle){P.pos.set(sp.x,0,sp.z);}});
   }
 }

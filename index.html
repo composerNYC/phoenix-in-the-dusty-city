@@ -157,9 +157,19 @@ select{font:inherit;background:#2a211a;color:var(--dust);border:1px solid var(--
 .tpad button,.ttop button{font:600 12px var(--body);color:var(--dust);background:rgba(20,15,11,.55);border:1px solid rgba(234,220,192,.35);border-radius:50%;width:58px;height:58px;touch-action:none;direction:ltr}
 .tpad .big{background:var(--pink);color:#1a0610;border:0;font-size:18px}
 .tpad button.on{background:var(--cyan);color:#06222a}
+.tpad .gun{background:rgba(255,182,39,.55);color:#1a0f00;font-weight:800}
+.tpad #tFire{width:72px;height:72px;background:#ff3b5c;color:#fff}
 .ttop{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);display:flex;gap:8px;pointer-events:auto}
 .ttop button{border-radius:999px;width:auto;height:auto;padding:8px 13px}
-body.touch #mm{left:auto;right:16px;bottom:auto;top:calc(150px + env(safe-area-inset-top,0px));width:110px;height:110px}
+body.touch #mm{left:auto;right:16px;bottom:auto;top:calc(96px + env(safe-area-inset-top,0px));width:92px;height:92px}
+body.touch .tpad{grid-template-columns:repeat(4,50px);gap:8px}
+body.touch .tpad button{width:50px;height:50px;font-size:11px}
+body.touch .tpad #tFire{width:50px;height:50px}
+body.touch #hotbar{bottom:auto;top:calc(56px + env(safe-area-inset-top,0px))}
+body.touch #hotbar .slot.empty{display:none}
+body.touch #hotbar .slot{width:44px;height:34px}
+body.touch #hotbar .slot span{font-size:8px}
+body.touch .pocket{display:none}
 body.touch #speedo{bottom:calc(160px + env(safe-area-inset-bottom,0px))}
 body.touch #prompt{bottom:auto;top:calc(62px + env(safe-area-inset-top,0px))}
 body.touch #toasts{margin-top:104px}
@@ -291,10 +301,13 @@ body.touch #tl .quest p{font-size:12px}
     <button data-k="KeyH">Horn</button>
     <button data-k="KeyG">Dance</button>
     <button data-k="KeyV">Fly</button>
+    <button data-k="Fire" class="gun" id="tFire" hidden>Fire</button>
+    <button data-k="Aim" class="gun" id="tAim" hidden>Aim</button>
+    <button data-k="Swap" class="gun" hidden>Swap</button>
     <button data-k="KeyF" class="art" hidden>Flame</button>
     <button data-k="KeyQ" class="art" hidden>Radio</button>
   </div>
-  <div class="ttop"><button data-k="Tab">Phone</button><button data-k="KeyM">Map</button><button data-k="KeyP">Pause</button></div>
+  <div class="ttop"><button data-k="KeyB">Drop</button><button data-k="Tab">Phone</button><button data-k="KeyM">Map</button><button data-k="KeyP">Pause</button></div>
 </div>
 
 <script type="module" src="game.js"></script>
