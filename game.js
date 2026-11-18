@@ -182,7 +182,7 @@ const loader=new GLTFLoader();
 // models ship as base64 inside .json so the artifact host can serve them
 async function loadGLB(name){const r=await fetch(`assets/${name}.json`);if(!r.ok)throw new Error('Missing model '+name);const j=await r.json();const bin=Uint8Array.from(atob(j.glb),c=>c.charCodeAt(0));return loader.parseAsync(bin.buffer,'');}
 const TEMPL={},CARS={},CLIPS={};
-const CHAR_FILES={rogue:'anims_rogue',barbarian:'barbarian',knight:'knight',mage:'mage',hooded:'rogue_hooded'};
+const CHAR_FILES={rogue:'anims_full',barbarian:'barbarian',knight:'knight',mage:'mage',hooded:'rogue_hooded'};
 const CAR_LEN={truck:5.4,van:5.2,delivery:7.4,suv:4.9,sedan:4.7};
 async function loadAssets(onProgress){
   let done=0;const total=Object.keys(CHAR_FILES).length+Object.keys(CAR_LEN).length;
@@ -309,6 +309,33 @@ function animPerson(c,mode,dt,speed){
   c.mixer.update(dt);
 }
 function oneShot(c,name,dur){play(c,name,.12);c.lock=dur;}
+// split clips into lower body (legs, hips) and upper body (spine up) so Phoenix can run and aim at once
+const UPPER_RE=/^(spine|chest|head|upperarm|lowerarm|wrist|hand|handslot)/;
+function partClip(name,upper){
+  const key=name+(upper?'__up':'__low');if(CLIPS[key])return key;const c=CLIPS[name];if(!c)return null;
+  const tr=c.tracks.filter(t=>UPPER_RE.test(t.name.split('.')[0])===upper);
+  CLIPS[key]=new THREE.AnimationClip(key,c.duration,tr);return key;
+}
+function playUpper(c,name,fade){
+  const key=partClip(name,true);if(!key)return;c.up=c.up||{actions:{},cur:null};const U=c.up;fade=fade==null?.15:fade;
+  if(U.cur===key)return;let a=U.actions[key];if(!a){a=c.mixer.clipAction(CLIPS[key]);U.actions[key]=a;}
+  a.reset();a.enabled=true;a.setEffectiveWeight(1);a.fadeIn(fade).play();if(U.cur&&U.actions[U.cur])U.actions[U.cur].fadeOut(fade);U.cur=key;
+}
+function stopUpper(c){const U=c.up;if(!U||!U.cur)return;U.actions[U.cur].fadeOut(.2);U.cur=null;if(c.cur&&c.cur.endsWith('__low')){const full=c.cur.replace('__low','');c.cur=null;play(c,full,.2);}}
+const _am=new THREE.Vector3();
+function animArmed(dt,spd){
+  const c=player;const rifle=W.def&&W.def.hold==='rifle';
+  let legs='Idle';
+  if(spd>.3){const fwdX=Math.sin(P.heading),fwdZ=Math.cos(P.heading);const f=(P.vel.x*fwdX+P.vel.z*fwdZ)/spd,sd=(P.vel.x*fwdZ-P.vel.z*fwdX)/spd;
+    if(f>.5)legs=spd>7?'Running_A':'Walking_A';else if(f<-.5)legs='Walking_Backwards';else legs=sd>0?'Running_Strafe_Left':'Running_Strafe_Right';}
+  if(!P.onGround)legs='Jump_Idle';
+  const lk=partClip(legs,false);if(lk)play(c,lk,.18,legs==='Walking_Backwards'?clamp(spd/2,.7,1.6):clamp(spd/6.5,.8,1.6));
+  const firing=mouse.l&&!W.over;
+  playUpper(c,firing?(rifle?'2H_Ranged_Shooting':'1H_Ranged_Shooting'):(rifle?'2H_Ranged_Aiming':'1H_Ranged_Aiming'));
+  c.mixer.update(dt);
+  // bend the spine toward where the camera aims
+  const ch=c.model.getObjectByName('chest');if(ch){ch.rotation.x+=clamp((camPitch-.25)*.9,-.6,.7);}
+}
 
 // ================= structures =================
 function hexayurt(){const g=new THREE.Group();const r=R(2.4,3.4);g.add(M(G.hex,mat(0xe4e7ea,{roughness:.45,metalness:.3}),r,2.4,r,0,1.2,0),M(G.cone6,mat(0xd3d8dc,{roughness:.5,metalness:.3}),r,1.3,r,0,3.05,0));return{g,obs:[[0,0,r]]};}
@@ -498,7 +525,7 @@ float gfbm(vec2 p){return gn(p)*.5+gn(p*2.1)*.3+gn(p*4.3)*.2;}`)
   bulbs=new THREE.Points(bg,new THREE.PointsMaterial({size:.55,map:glowMap,vertexColors:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));scene.add(bulbs);
 
   buildVehicles();buildPeople();buildPickups();buildParticles();buildJobs();initPoofs();buildDevils();initPuffs();initTrail();buildDali();buildMasters();buildArtistCars();buildObstacleGrid();buildCrowd();
-  initLaserField();for(const v of artCars)addCarBeams(v);detachCarLights();initLightPool();initFlares();initSkyFlares();
+  initDropFx();buildPads();buildManhunt();initArms();initLaserField();for(const v of artCars)addCarBeams(v);detachCarLights();initLightPool();initFlares();initSkyFlares();
   beacon=new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.4,260,20,1,true),new THREE.MeshBasicMaterial({color:new THREE.Color(0x46f1ff).multiplyScalar(1.5),transparent:true,opacity:.3,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false}));
   beacon.position.y=130;scene.add(beacon);
   beacon2=new THREE.Mesh(beacon.geometry,new THREE.MeshBasicMaterial({color:new THREE.Color(0xffb35a).multiplyScalar(1.5),transparent:true,opacity:.3,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false}));beacon2.position.y=130;beacon2.visible=false;scene.add(beacon2);
@@ -785,25 +812,30 @@ function handleKey(code){const e={code};
   if(!state.started||state.paused)return;
   if(e.code==='Escape'||e.code==='KeyP'){openPause();return;}
   if(e.code==='Tab'){openPhone();return;}
-  if(e.code==='KeyQ')cycleRadio();
+  if(e.code==='KeyQ'){if(P.vehicle&&P.vehicle.kind==='art')cycleRadio();else if(state.weapon)holster();else if(state.weapons&&state.weapons.length)equip(state.lastWeapon&&state.weapons.includes(state.lastWeapon)?state.lastWeapon:state.weapons[0]);}
+  if(/^Digit[0-9]$/.test(e.code)){const n=(+e.code.slice(5)+9)%10;slotWeapon(n);}
+  if(e.code==='KeyB'){if(!P.ride&&!(state.wanted>=1))startDrop(false);else if(state.wanted>=1)toast('The drop plane won’t pick you up while the Rangers are after you.');}
   if(e.code==='KeyF'){if(P.vehicle&&P.vehicle.kind==='art')poof(P.vehicle);}
   if(e.code==='KeyH')horn();
   if(e.code==='KeyG')danceParty();
   if(e.code==='KeyX')meltTime();
   if(e.code==='KeyV')toggleFly();
   if(e.code==='KeyJ'){if(state.job&&state.job.id==='shuttle')endJob(false,'Shuttle run ended.',0);else startJob('shuttle');}
-  if(e.code==='KeyE')interact();
+  if(e.code==='KeyE'){if(P.hidden)leaveHide();else interact();}
   if(e.code==='KeyM')toggleMap();
   if(e.code==='KeyK'){document.body.classList.toggle('photo');if(document.body.classList.contains('photo'))toast('Photo mode. Press K to bring the HUD back.');}
   if(e.code==='KeyC'&&!P.vehicle){P.sitting=!P.sitting;}
   if(e.code==='KeyT'){let nt=state.time+1,ev=false;for(const at of [MB-.08,TB-.08])if(state.time<at&&nt>at){nt=at;ev=true;}state.time=nt;toast(ev?'Skipping stops here. Something big is about to happen.':'An hour drifts by.');}
 }
 window.addEventListener('keyup',e=>{keys[e.code]=false;});
-window.addEventListener('blur',()=>{for(const k in keys)keys[k]=false;});
+window.addEventListener('blur',()=>{for(const k in keys)keys[k]=false;mouse.l=mouse.r=false;});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+window.addEventListener('mousedown',e=>{if(document.pointerLockElement!==canvas)return;if(e.button===0){mouse.l=true;W.trigger=true;}if(e.button===2)mouse.r=true;});
+window.addEventListener('mouseup',e=>{if(e.button===0)mouse.l=false;if(e.button===2)mouse.r=false;});
 canvas.addEventListener('mousedown',()=>{dragging=true;if(state.started&&!state.paused&&document.pointerLockElement!==canvas&&canvas.requestPointerLock){try{const p=canvas.requestPointerLock();if(p&&p.catch)p.catch(()=>{});}catch(_){}}});
 window.addEventListener('mouseup',()=>{dragging=false;});
-window.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas||dragging){camYaw-=e.movementX*.0032*settings.sens;camPitch=clamp(camPitch+e.movementY*.0028*settings.sens*(settings.invert?-1:1),.02,1.25);lastLook=performance.now();}});
-canvas.addEventListener('wheel',e=>{camDist=clamp(camDist+e.deltaY*.01,3.5,40);e.preventDefault();},{passive:false});
+window.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas||dragging){camYaw-=e.movementX*.0032*settings.sens;camPitch=clamp(camPitch+e.movementY*.0028*settings.sens*(W.aiming?.55:1)*(settings.invert?-1:1),armed()?-.55:.02,1.25);if(W.aiming)camYaw+=e.movementX*.0032*settings.sens*.45;lastLook=performance.now();}});
+let wheelAcc=0;canvas.addEventListener('wheel',e=>{e.preventDefault();if(armed()){wheelAcc+=e.deltaY;if(Math.abs(wheelAcc)>40){cycleWeapon(Math.sign(wheelAcc));wheelAcc=0;}return;}camDist=clamp(camDist+e.deltaY*.01,3.5,40);},{passive:false});
 const down=(...c)=>c.some(k=>keys[k]);
 
 // ================= game state =================
@@ -812,7 +844,7 @@ const MB=23,TB=46; // Man burns Sat 11 PM, Temple burns Sun 10 PM
 // mostly night: daylight hours fly by, night hours linger
 function hourLen(h){return h>6.8&&h<18.2?12:55;}
 const DAYS=['SAT','SUN','MON','TUE','WED','THU','FRI'];
-const state={gallery:{admired:{},done:false},unlocks:{},dream:{stage:0,got:0},meltPower:false,sunriseDay:-1,karma:0,outfit:'phoenix',stats:{walked:0,driven:0,poofs:0,fares:0,jobs:0,rangers:0},jobsDone:{},lampDay:-1,job:null,waypoint:null,time:18.4,dust:0,dustTarget:0,nextStorm:20.6,stormEnd:0,goggles:false,gifts:[],given:0,heat:0,quest:0,sawMan:false,sawTemple:false,manBurnt:false,templeBurnt:false,paused:true,started:false,mapOpen:false};
+const state={gallery:{admired:{},done:false},unlocks:{},dream:{stage:0,got:0},meltPower:false,sunriseDay:-1,karma:0,outfit:'phoenix',stats:{walked:0,driven:0,poofs:0,fares:0,jobs:0,rangers:0},jobsDone:{},lampDay:-1,job:null,waypoint:null,time:18.4,dust:0,dustTarget:0,nextStorm:20.6,stormEnd:0,goggles:false,wanted:0,weapons:[],weapon:null,glider:'parachute',gifts:[],given:0,heat:0,quest:0,sawMan:false,sawTemple:false,manBurnt:false,templeBurnt:false,paused:true,started:false,mapOpen:false};
 
 function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;const box=$('#toasts');box.appendChild(el);while(box.children.length>3)box.removeChild(box.firstChild);setTimeout(()=>el.remove(),4200);}
 let modalCb=null;
@@ -839,6 +871,8 @@ function exitVehicle(){
 function interact(){
   if(P.flying||P.sky||P.ride)return;
   if(P.vehicle){exitVehicle();return;}
+  {const h=nearHide();if(h&&!h.occ){enterHide(h);return;}}
+  {const k=nearRack();if(k){useRack(k);return;}}
   if(airport.plane&&!airport.busy&&d2(airport.plane.g.position,P.pos)<9){boardPlane();return;}
   if(lightLamp())return;
   if(interactDali())return;
@@ -911,12 +945,12 @@ function applySettings(){
 }
 function saveGame(){
   if(!state.started)return;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,time:state.time,quest:state.quest,gifts:state.gifts,given:state.given,goggles:state.goggles,sawMan:state.sawMan,sawTemple:state.sawTemple,karma:state.karma,outfit:state.outfit,stats:state.stats,jobsDone:state.jobsDone,lampDay:state.lampDay,dream:{stage:state.dream.stage,got:dali.clocks.filter(c=>c.got).map(c=>c.i)},meltPower:state.meltPower,gallery:state.gallery,unlocks:state.unlocks,x:P.pos.x,z:P.pos.z,heading:P.heading}));}catch(_){}
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,time:state.time,quest:state.quest,gifts:state.gifts,given:state.given,goggles:state.goggles,wanted:state.wanted,weapons:state.weapons,weapon:state.weapon,glider:state.glider,gliders:state.gliders,sawMan:state.sawMan,sawTemple:state.sawTemple,karma:state.karma,outfit:state.outfit,stats:state.stats,jobsDone:state.jobsDone,lampDay:state.lampDay,dream:{stage:state.dream.stage,got:dali.clocks.filter(c=>c.got).map(c=>c.i)},meltPower:state.meltPower,gallery:state.gallery,unlocks:state.unlocks,x:P.pos.x,z:P.pos.z,heading:P.heading}));}catch(_){}
 }
 function loadSave(){try{const d=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');return d&&d.v===1?d:null;}catch(_){return null;}}
 function clearSave(){try{localStorage.removeItem(SAVE_KEY);}catch(_){}}
 function applySave(d){
-  Object.assign(state,{time:d.time,quest:d.quest||0,gifts:d.gifts||[],given:d.given||0,goggles:!!d.goggles,sawMan:!!d.sawMan,sawTemple:!!d.sawTemple,karma:d.karma||0,lampDay:d.lampDay??-1});
+  Object.assign(state,{time:d.time,quest:d.quest||0,gifts:d.gifts||[],given:d.given||0,goggles:!!d.goggles,wanted:d.wanted||0,weapons:d.weapons||[],weapon:d.weapon||null,glider:d.glider||'parachute',gliders:d.gliders||['parachute'],sawMan:!!d.sawMan,sawTemple:!!d.sawTemple,karma:d.karma||0,lampDay:d.lampDay??-1});
   Object.assign(state.stats,d.stats||{});state.meltPower=!!d.meltPower;if(d.gallery)state.gallery=d.gallery;if(d.unlocks)state.unlocks=d.unlocks;if(d.dream){state.dream.stage=d.dream.stage||0;for(const c of dali.clocks)if((d.dream.got||[]).includes(c.i)){c.got=true;if(c.b.clock)c.b.clock.visible=false;}}Object.assign(state.jobsDone,d.jobsDone||{});
   state.manBurnt=state.time>=MB;state.templeBurnt=state.time>=TB;state.nextStorm=state.time+R(1.5,4);
   if(typeof d.x==='number'){P.pos.set(d.x,0,d.z);P.heading=d.heading||0;}
@@ -1241,7 +1275,7 @@ function updateShuttle(J,dt){
       toast(`"Woo! Take me to ${J.dest.name}, please!"`);sfx.chime();
     }
   }else{
-    animPerson(J.pass,'dance',dt,0);if(state.heat>=1)J.rough=true;
+    animPerson(J.pass,'dance',dt,0);if(state.wanted>=1)J.rough=true;
     if(d2(c.pos,J.dest.pos)<20&&mph<3){
       c.g.remove(J.pass.g);const pg=J.pass.g;const side=new THREE.Vector3(Math.cos(c.heading),0,-Math.sin(c.heading)).multiplyScalar(c.r+1.5);pg.position.set(c.pos.x+side.x,0,c.pos.z+side.z);scene.add(pg);
       const passenger=J.pass;setTimeout(()=>{if(pg.parent)pg.parent.remove(pg);},7000);J.pass=null;void passenger;
@@ -1915,30 +1949,42 @@ function updatePlaneAuto(dt){
   if(A.t>45){airport.auto=null;airport.busy=false;pl.g.position.copy(airport.park);pl.g.rotation.set(0,airport.heading,0);}
 }
 function updateSkydive(dt,inp){
-  const S=P.sky,v=S.vel;S.t+=dt;const gh=groundHeight(P.pos.x,P.pos.z);const agl=P.pos.y-gh;
+  const S=P.sky,v=S.vel;S.t+=dt;const gh=groundHeight(P.pos.x,P.pos.z);const agl=P.pos.y-gh;S.top=Math.max(S.top,P.pos.y);
   const turn=(inp.left?1:0)-(inp.right?1:0)-touch.jx;
+  const look=camYaw+Math.PI;const steer=inp.fwd||touch.jy<-.5;
   if(!S.canopy){
-    S.heading+=turn*1.7*dt;const dive=inp.fwd||touch.jy<-.5;const track=dive?22:inp.back?-5:5;const term=dive?78:55;
+    if(steer)S.heading=lerpAngle(S.heading,look,Math.min(1,dt*2.2));
+    S.heading+=turn*1.5*dt;const dive=steer&&camPitch>.55;const track=steer?(dive?16:30):inp.back?-4:4;const term=dive?82:steer?58:52;
     v.y-=9.8*dt;if(v.y<-term)v.y=lerp(v.y,-term,Math.min(1,dt*2));
     v.x=lerp(v.x,Math.sin(S.heading)*track,Math.min(1,dt*.9));v.z=lerp(v.z,Math.cos(S.heading)*track,Math.min(1,dt*.9));
-    player.g.rotation.order='YXZ';player.g.rotation.y=S.heading;player.g.rotation.x=lerp(player.g.rotation.x,dive?1.15:1.5,Math.min(1,dt*3));player.g.rotation.z=lerp(player.g.rotation.z,-turn*.4,dt*3);
-    if((inp.jumpEdge&&agl>30)||agl<120)openChute();
+    player.g.rotation.order='YXZ';player.g.rotation.y=S.heading;
+    const pose=v.y>0?.2:dive?1.05:steer?1.3:1.5;
+    player.g.rotation.x=lerp(player.g.rotation.x,pose,Math.min(1,dt*3));player.g.rotation.z=lerp(player.g.rotation.z,-turn*.45+Math.sin(S.t*7)*.03,dt*3);
+    const rising=v.y>0;
+    if(!rising&&((inp.jumpEdge&&agl>25)||agl<110))openChute();
   }else{
-    S.heading+=turn*1.1*dt;const glide=inp.fwd?14:inp.back?4:9,desc=inp.fwd?8:inp.back?2.4:5;
+    if(steer)S.heading=lerpAngle(S.heading,look,Math.min(1,dt*1.2));
+    S.heading+=turn*1.1*dt;const glide=steer?15:inp.back?4:10,desc=steer?7.5:inp.back?2.4:4.8;
     v.x=lerp(v.x,Math.sin(S.heading)*glide,Math.min(1,dt*1.2));v.z=lerp(v.z,Math.cos(S.heading)*glide,Math.min(1,dt*1.2));v.y=lerp(v.y,-desc,Math.min(1,dt*1.5));
-    player.g.rotation.y=S.heading;player.g.rotation.x=lerp(player.g.rotation.x,0,Math.min(1,dt*3));player.g.rotation.z=lerp(player.g.rotation.z,-turn*.25,dt*2);
-    S.canopy.position.set(P.pos.x,P.pos.y+1.9,P.pos.z);S.canopy.rotation.set(Math.sin(S.t*1.3)*.06,S.heading,-turn*.3);
+    player.g.rotation.y=S.heading;player.g.rotation.x=lerp(player.g.rotation.x,.08,Math.min(1,dt*3));player.g.rotation.z=lerp(player.g.rotation.z,-turn*.25,dt*2);
+    S.canopy.position.set(P.pos.x,P.pos.y+1.75,P.pos.z);S.canopy.rotation.set(Math.sin(S.t*1.3)*.05,S.heading,-turn*.3);
+    if(S.gl&&S.gl.update)S.gl.update(dt,S.t,{night,speed:glide});
   }
   play(player,'Jump_Idle',.3);player.mixer.update(dt);
   P.pos.addScaledVector(v,dt);if(P.pos.y<6)collide(P.pos,.45,true);
   if(P.pos.y<=groundHeight(P.pos.x,P.pos.z))landSkydive();
 }
-function openChute(){const S=P.sky;if(S.canopy)return;S.canopy=makeCanopy();scene.add(S.canopy);S.freefall=S.t;S.vel.y*=.25;sfx.whoosh(0);floatText('Canopy open');}
+function openChute(){const S=P.sky;if(S.canopy)return;
+  const kind=state.glider||'parachute';
+  if(PR&&PR.buildGlider){const gl=PR.buildGlider(kind);shadowAll(gl.g);S.canopy=new THREE.Group();S.canopy.add(gl.g);S.gl=gl;}
+  else S.canopy=makeCanopy();
+  scene.add(S.canopy);S.freefall=S.t;S.vel.y*=.25;sfx.whoosh(0);floatText(kind==='parachute'?'Canopy open':'Glider out');}
 function landSkydive(){
   const S=P.sky;P.sky=null;if(S.canopy)setTimeout(()=>scene.remove(S.canopy),2500),S.canopy.position.y=P.pos.y+.2,S.canopy.rotation.x=1.3;
   P.pos.y=groundHeight(P.pos.x,P.pos.z);P.vy=0;P.onGround=true;P.vel.set(0,0,0);player.g.rotation.x=0;player.g.rotation.z=0;oneShot(player,'Jump_Land',.6);
   const dMan=Math.hypot(P.pos.x,P.pos.z),dCamp=d2(P.pos,CAMP);const ff=(S.freefall||S.t).toFixed(0);
   state.stats.skydives=(state.stats.skydives||0)+1;
+  if(S.drop)onDropLanded(S.first);
   if(!S.canopy){stuntText('Phoenix rises','No parachute? No problem. Ashes to wings.');for(let k=0;k<3;k++)setTimeout(()=>{for(const pv of[P.pos])for(let i=0;i<40;i++)emitTrail(pv.x+R(-2,2),pv.y+R(0,3),pv.z+R(-2,2),2);},k*120);addKarma(5,'skydive');return;}
   if(dMan<45){stuntText('Bullseye on the Man',`${ff}s of freefall from ${Math.round(S.top)} m`);addKarma(30,'bullseye landing');}
   else if(dCamp<25){stuntText('Landed at camp',`${ff}s of freefall. Your campmates applaud.`);addKarma(20,'home landing');}
@@ -1947,9 +1993,457 @@ function landSkydive(){
   for(let i=0;i<crowdN;i++){if((cX[i]-P.pos.x)**2+(cZ[i]-P.pos.z)**2<900)crowdCheer(i,4);}
 }
 function airUpdate(dt,inp){
-  if(P.ride)updatePlaneRide(dt,inp);else if(P.sky)updateSkydive(dt,inp);else updateFlight(dt,inp);
+  if(P.ride&&P.ride.drop)updateDropRide(dt,inp);else if(P.ride)updatePlaneRide(dt,inp);else if(P.sky)updateSkydive(dt,inp);else updateFlight(dt,inp);
 }
 
+
+// ================= THE DROP: every new week starts in the sky =================
+let PR=null;
+async function loadProps(){try{PR=await import('./props.js');if(PR.initProps)PR.initProps({neon,mat,glowMap});}catch(e){console.warn('props.js failed to load',e);PR=null;}}
+const drop={active:null,plane:null,leaving:null};
+const _dd=new THREE.Vector3();
+function dropPlaneModel(){
+  if(drop.plane)return drop.plane;let pl;
+  if(PR&&PR.buildArtPlane){const b=PR.buildArtPlane();shadowAll(b.g);pl={g:b.g,door:b.door||null,update:b.update||(()=>{})};}
+  else{const b=buildPlane();b.g.scale.setScalar(1.7);pl={g:b.g,door:null,update:dt=>{b.prop.rotation.z+=dt*40;}};}
+  pl.g.rotation.order='YXZ';pl.g.visible=false;scene.add(pl.g);drop.plane=pl;return pl;
+}
+function clearAir(){
+  if(P.vehicle)exitVehicle();P.flying=false;
+  if(P.sky){if(P.sky.canopy)scene.remove(P.sky.canopy);P.sky=null;}
+  if(P.ride&&!P.ride.drop){airport.busy=false;}
+  P.ride=null;player.g.visible=true;if(drop.active){drop.active=null;drop.leaving={t:0};}const tc=$('#titlecard');if(tc)tc.hidden=true;
+}
+function startDrop(first){
+  if(P.ride&&P.ride.drop)return;
+  clearAir();if(P.hidden)leaveHide&&leaveHide(true);
+  const pl=dropPlaneModel();
+  const a=R(0,TAU),off=R(-220,220);
+  const dir=new THREE.Vector3(Math.cos(a),0,Math.sin(a)),side=new THREE.Vector3(-dir.z,0,dir.x);
+  const start=side.clone().multiplyScalar(off).addScaledVector(dir,-1250);start.y=first?820:680;
+  const D={t:0,dir,side,start:start.clone(),pos:start.clone(),speed:58,heading:Math.atan2(dir.x,dir.z),first,len:2500,divers:0,nextDiver:2};
+  drop.active=D;drop.leaving=null;
+  pl.g.visible=true;pl.g.position.copy(start);pl.g.rotation.set(0,D.heading,0);
+  P.ride={drop:true,pos:pl.g.position,heading:D.heading,speed:D.speed,vy:0,bank:0,t:0};player.g.visible=false;
+  camYaw=D.heading+Math.PI*.85;camPitch=.32;
+  if(state.weapon&&W.gun)W.gun.g.visible=false;
+  sfx.chime();
+  if(first)showTitleCard();
+  toast(first?'The drop plane is crossing the city. Press Space to jump when you are over a spot you like.':'The drop plane is overhead. Space to jump.');
+}
+function updateDropRide(dt,inp){
+  const D=drop.active,pl=drop.plane;D.t+=dt;P.ride.t=D.t;
+  D.pos.addScaledVector(D.dir,D.speed*dt);
+  pl.g.rotation.y=D.heading;pl.g.rotation.z=Math.sin(D.t*.6)*.035;pl.g.rotation.x=Math.sin(D.t*.45)*.012;
+  pl.update(dt,performance.now()*.001,{night});
+  if(pl.door){pl.door.getWorldPosition(_dd);}else{_dd.set(0,2,-9);pl.g.localToWorld(_dd);}
+  P.pos.copy(_dd);
+  const flown=D.t*D.speed,r=Math.hypot(D.pos.x,D.pos.z);
+  D.nextDiver-=dt;if(D.nextDiver<=0&&r<560&&D.divers<10){D.nextDiver=R(1.2,3.5);D.divers++;spawnDiver(_dd,D.heading+Math.PI);}
+  if(performance.now()-lastLook>2500)camYaw=lerpAngle(camYaw,D.heading+Math.PI*.8,dt*.4);
+  if(inp.jumpEdge&&D.t>1.2)dropJump();
+  else if(flown>D.len-150){toast('Last call! The pilot waves you out the door.');dropJump();}
+}
+function dropJump(){
+  const D=drop.active;P.ride=null;player.g.visible=true;drop.leaving={t:0};
+  P.sky={vel:new THREE.Vector3(D.dir.x*D.speed*.35,-3,D.dir.z*D.speed*.35),heading:D.heading,canopy:null,t:0,top:P.pos.y,drop:true,first:D.first};
+  drop.active=null;
+  stuntText(D.first?'':'Geronimo!',`Jumping from ${Math.round(P.pos.y)} m`);sfx.whoosh(0);camDist=Math.max(camDist,9);camPitch=.5;
+}
+function updateDropPlane(dt){
+  const L=drop.leaving;if(!L||!drop.plane)return;L.t+=dt;const pl=drop.plane;
+  pl.g.position.addScaledVector(_dd.set(Math.sin(pl.g.rotation.y),0,Math.cos(pl.g.rotation.y)),58*dt);pl.update(dt,performance.now()*.001,{night});
+  if(L.t>40){pl.g.visible=false;drop.leaving=null;}
+}
+function showTitleCard(){
+  const el=$('#titlecard');if(!el)return;el.hidden=false;el.classList.remove('out');void el.offsetWidth;el.classList.add('in');
+  setTimeout(()=>{el.classList.add('out');},5200);setTimeout(()=>{el.hidden=true;el.classList.remove('in','out');},7000);
+}
+// landing marker + speed lines
+let landRing=null,slMesh=null;const SL_N=120,slP=new Float32Array(SL_N*6),slW=[];
+function initDropFx(){
+  landRing=new THREE.Mesh(new THREE.RingGeometry(2.2,3,48),new THREE.MeshBasicMaterial({color:new THREE.Color(0x46f1ff).multiplyScalar(2),transparent:true,opacity:.75,depthWrite:false,side:THREE.DoubleSide,fog:false}));
+  landRing.rotation.x=-Math.PI/2;landRing.visible=false;landRing.renderOrder=3;scene.add(landRing);
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(slP,3));
+  slMesh=new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending,fog:false}));
+  slMesh.frustumCulled=false;slMesh.visible=false;scene.add(slMesh);
+  for(let i=0;i<SL_N;i++)slW.push(new THREE.Vector3(1e6,1e6,1e6));
+}
+function updateDropFx(dt){
+  if(!landRing)return;
+  const S=P.sky;
+  if(S&&S.vel.y<0){const gh=groundHeight(P.pos.x,P.pos.z);const tf=clamp((P.pos.y-gh)/Math.max(4,-S.vel.y),0,25);
+    landRing.visible=true;landRing.position.set(P.pos.x+S.vel.x*tf*.6,gh+.15,P.pos.z+S.vel.z*tf*.6);const sc=1+clamp((P.pos.y-gh)/250,0,3);landRing.scale.setScalar(sc);landRing.material.opacity=.45+.3*Math.sin(performance.now()*.008);}
+  else landRing.visible=false;
+  const v=S?S.vel:(P.flying?P.fv:null);const sp=v?v.length():0;const k=clamp((sp-22)/40,0,1);
+  if(k<=0){slMesh.visible=false;return;}
+  slMesh.visible=true;slMesh.material.opacity=k*.5;const c=camera.position;
+  for(let i=0;i<SL_N;i++){const w=slW[i];
+    if(w.distanceToSquared(c)>22*22){w.set(c.x+R(-14,14),c.y+R(-14,14),c.z+R(-14,14)).addScaledVector(v,.35);}
+    const o=i*6,ln=.045;slP[o]=w.x;slP[o+1]=w.y;slP[o+2]=w.z;slP[o+3]=w.x-v.x*ln;slP[o+4]=w.y-v.y*ln;slP[o+5]=w.z-v.z*ln;}
+  slMesh.geometry.attributes.position.needsUpdate=true;
+}
+// launch pads: step on one to rocket back into the sky
+const pads=[];
+function buildPads(){
+  const spots=[clockPos(3,262),clockPos(9,262),clockPos(6,300),clockPos(7.25,392),clockPos(12,120),clockPos(1.5,420),clockPos(10.5,420),clockPos(4.5,200),clockPos(7.5,200)];
+  for(const p of spots){collide(p,3);let b;
+    if(PR&&PR.buildLaunchPad)b=PR.buildLaunchPad();
+    else{const g=new THREE.Group();g.add(M(G.cyl,mat(0x2a2a30,{roughness:.5,metalness:.4}),2.6,.3,2.6,0,.15,0));for(let k=0;k<3;k++){const t=new THREE.Mesh(new THREE.TorusGeometry(2.2-k*.6,.08,8,48),neon(0x46f1ff,.8));t.rotation.x=Math.PI/2;t.position.y=.35+k*.02;g.add(t);}b={g,update:()=>{}};}
+    b.g.position.set(p.x,0,p.z);scene.add(b.g);pads.push({b,pos:new THREE.Vector3(p.x,0,p.z),cool:0});}
+}
+function updatePads(dt){
+  const t=performance.now()*.001;
+  for(const pd of pads){const d=d2(pd.pos,P.pos);if(d<250&&pd.b.update)pd.b.update(dt,t,{night});pd.cool-=dt;
+    if(pd.cool<=0&&d<2.6&&!P.vehicle&&!P.sky&&!P.ride&&!P.flying&&P.pos.y<1.5){pd.cool=3;launchUp();}}
+}
+function launchUp(){
+  P.sky={vel:new THREE.Vector3(0,72,0),heading:P.heading,canopy:null,t:0,top:P.pos.y,launch:true};
+  P.onGround=false;sfx.whoosh(0);stuntText('Launch!','Steer with the mouse and W. Space opens your glider.');camDist=Math.max(camDist,9);
+  for(let i=0;i<12;i++)emitPuff(P.pos.x+R(-1.5,1.5),P.pos.z+R(-1.5,1.5),1.4,.4);
+}
+
+// ================= ARMED: artsy guns, unlimited ammo, nobody gets hurt =================
+let WP=null;
+async function loadWeapons(){try{WP=await import('./weapons.js');if(WP.initWeapons)WP.initWeapons({glowMap});}catch(e){console.warn('weapons.js failed to load',e);WP=null;}}
+const W={sys:null,guns:{},gun:null,def:null,heat:0,over:false,aiming:false,zoom:1,shake:0,nextShot:0,beamOn:false,hitT:0,spin:0,pickups:[]};
+const mouse={l:false,r:false};
+const WDEF=id=>WP&&WP.WEAPONS.find(w=>w.id===id);
+const _wa=new THREE.Vector3(),_wb=new THREE.Vector3(),_wc=new THREE.Vector3(),_wq=new THREE.Quaternion();
+function initArms(){
+  if(!WP)return;W.sys=WP.createWeaponSystem(scene,camera);
+  if(!state.weapons)state.weapons=[];
+  buildWeaponPickups();renderHotbar();
+}
+function gunFor(id){
+  if(W.guns[id])return W.guns[id];
+  const gun=WP.buildGun(id);gun.g.traverse(o=>{if(o.isMesh){o.castShadow=true;}});W.guns[id]=gun;return gun;
+}
+function handBone(){return player.model.getObjectByName('handslotr')||player.model.getObjectByName('handr');}
+function equip(id,quiet){
+  if(!WP||!state.weapons.includes(id))return;
+  if(W.gun)W.gun.g.visible=false;
+  state.weapon=id;W.def=WDEF(id);W.heat=0;W.over=false;
+  const gun=gunFor(id);if(gun.g.parent!==scene)scene.add(gun.g);gun.g.scale.setScalar(1.55);
+  gun.g.visible=!P.vehicle&&!P.ride&&!P.hidden;W.gun=gun;
+  if(!quiet){floatText(W.def.name);if(audio.ctx)WP.weaponSound(id,audio.ctx,audio.sfx,'pickup');}
+  renderHotbar();
+}
+const GUN_ROT=new THREE.Euler(0,0,0);
+function holster(){if(W.gun)W.gun.g.visible=false;state.weapon=null;W.def=null;W.aiming=false;renderHotbar();}
+function giveWeapon(id,why){
+  if(!WP)return;const def=WDEF(id);if(!def)return;
+  const isNew=!state.weapons.includes(id);if(isNew)state.weapons.push(id);
+  equip(id,true);if(audio.ctx)WP.weaponSound(id,audio.ctx,audio.sfx,'pickup');
+  if(isNew){stuntText(def.name,def.blurb);if(state.weapons.length===1)setTimeout(()=>toast('Left mouse to fire, right mouse to aim. 1–0 or the mouse wheel switch guns, Q puts it away. Ammo never runs out. Splash a Ranger and they’ll be stunned for a bit.'),2200);}
+  renderHotbar();saveGame();
+}
+function cycleWeapon(dir){if(!WP||!state.weapons.length)return;const ids=WP.WEAPONS.map(w=>w.id).filter(id=>state.weapons.includes(id));let i=ids.indexOf(state.weapon);i=(i+dir+ids.length)%ids.length;equip(ids[i]);}
+function slotWeapon(n){if(!WP)return;const id=WP.WEAPONS[n]&&WP.WEAPONS[n].id;if(id&&state.weapons.includes(id))equip(id);else if(id)floatText('Not found yet: '+WDEF(id).name);}
+function armed(){return !!(W.def&&W.gun&&!P.vehicle&&!P.ride&&!P.hidden&&!P.flying&&!(P.sky&&!P.sky.canopy));}
+// camera ray -> world aim point
+const _ap1=new THREE.Vector3(),_ap2=new THREE.Vector3();
+function aimPoint(out){
+  camera.getWorldDirection(_ap1);const o=camera.position;const range=W.def?W.def.range:120;
+  // skip the stretch between camera and player
+  let best=range;
+  const tg=weaponTargets();for(const t of tg){_ap2.copy(t.pos).sub(o);const along=_ap2.dot(_ap1);if(along<2||along>best)continue;
+    const cx=o.x+_ap1.x*along-t.pos.x,cz=o.z+_ap1.z*along-t.pos.z,cy=o.y+_ap1.y*along-t.pos.y;if(cx*cx+cz*cz<t.r*t.r*1.4&&cy>-.2&&cy<t.h+.2)best=along;}
+  if(_ap1.y<-.001){const tg2=(o.y-0)/-_ap1.y;if(tg2<best)best=Math.max(2,tg2);}
+  return out.copy(o).addScaledVector(_ap1,best);
+}
+let _targets=[],_targetsFrame=-1;
+function weaponTargets(){
+  if(_targetsFrame===frameNo)return _targets;_targetsFrame=frameNo;_targets.length=0;const f=P.pos;
+  for(const r of RG.list)if(r.g.visible&&d2(r.pos,f)<160)_targets.push({pos:r.pos,r:.55,h:1.9,ref:r});
+  for(const n of npcs){const g=n.p.g;if(g.visible&&d2(g.position,f)<90)_targets.push({pos:g.position,r:.5,h:1.8,ref:n});}
+  return _targets;
+}
+function updateArms(dt){
+  if(!W.sys)return;
+  const on=armed();if(W.gun)W.gun.g.visible=on;
+  W.aiming=on&&mouse.r;W.zoom=W.aiming&&W.def?W.def.zoom:1;
+  if(W.def){W.heat=Math.max(0,W.heat-W.def.coolRate*dt*(W.over?1.4:1));if(W.over&&W.heat<=.05){W.over=false;}}
+  if(W.kick>0){const rec=Math.min(W.kick,W.kick*Math.min(1,dt*7)+dt*.02);W.kick-=rec;camPitch=clamp(camPitch+rec,-.55,1.25);}
+  W.nextShot-=dt;W.shake=Math.max(0,W.shake-dt*3);W.hitT-=dt;
+  // the gun rides in Phoenix's hand and always points at the crosshair
+  if(on&&W.gun){const hb=handBone();if(hb){hb.getWorldPosition(_wb);W.gun.g.position.copy(_wb);aimPoint(_wc);W.gun.g.lookAt(_wc);W.gun.g.updateMatrixWorld(true);}}
+  const firing=on&&mouse.l&&!W.over&&state.started&&!state.paused;
+  if(W.gun&&W.gun.update)W.gun.update(dt,performance.now()*.001,firing,W.heat);
+  const def=W.def;
+  if(def&&def.speed===Infinity){
+    if(firing){W.gun.muzzle.getWorldPosition(_wb);aimPoint(_wc);_wa.copy(_wc).sub(_wb).normalize();W.sys.beam(def.id,_wb,_wa,true);W.heat+=def.heatPerShot*def.rate*dt;W.beamOn=true;W.shake=Math.max(W.shake,def.shake*.5);
+      if(W.nextShot<=0){W.nextShot=1/def.rate;if(audio.ctx)WP.weaponSound(def.id,audio.ctx,audio.sfx,'fire');}}
+    else if(W.beamOn){W.sys.beam(def.id,_wb,_wa,false);W.beamOn=false;}
+  }else if(def&&firing&&W.nextShot<=0&&(def.auto||W.trigger)){
+    W.trigger=false;W.nextShot=1/def.rate;
+    W.gun.muzzle.getWorldPosition(_wb);aimPoint(_wc);_wa.copy(_wc).sub(_wb).normalize();
+    let homing=null;if(def.id==='firework'){let bd=1e9;for(const t of weaponTargets()){if(!(t.ref&&t.ref.isRanger))continue;_wc.copy(t.pos).sub(camera.position);const al=_wc.dot(camera.getWorldDirection(_wq.__v||(_wq.__v=new THREE.Vector3())));if(al<0)continue;const dd=_wc.length();const ang=al/dd;if(ang>.9&&dd<bd){bd=dd;homing={pos:t.pos};}}}
+    W.sys.fire(def.id,_wb,_wa,homing?{homingTarget:homing}:undefined);W.sys.muzzleFlash(W.gun.muzzle,def.id);
+    W.heat+=def.heatPerShot;if(W.heat>=1){W.heat=1;W.over=true;if(audio.ctx)WP.weaponSound(def.id,audio.ctx,audio.sfx,'overheat');floatText('Overheated!');}
+    {const k=def.recoil*(W.aiming?.5:1);camPitch=clamp(camPitch-k,-.55,1.25);W.kick=(W.kick||0)+k;}camYaw+=R(-1,1)*def.recoil*.3;W.shake=Math.max(W.shake,def.shake);
+    if(audio.ctx)WP.weaponSound(def.id,audio.ctx,audio.sfx,'fire');
+    state.stats.shots=(state.stats.shots||0)+1;state.stats.gunUse=state.stats.gunUse||{};state.stats.gunUse[def.id]=(state.stats.gunUse[def.id]||0)+1;
+    // burners nearby react
+    if(frameNo%3===0)for(let i=0;i<crowdN;i++){if((cX[i]-P.pos.x)**2+(cZ[i]-P.pos.z)**2<200)crowdCheer(i,1.5);}
+  }
+  const hits=W.sys.update(dt,{targets:weaponTargets(),groundHeight,solid:null});
+  if(hits&&hits.length)for(const h of hits)onWeaponHit(h);
+  updateWeaponPickups(dt);updateCrosshair();
+}
+function onWeaponHit(h){
+  const ref=h.ref;
+  if(ref&&ref.isRanger){rangerHit(ref,h);if(h.direct||h.effect!=='paint'){W.hitT=.18;}}
+  else if(ref&&ref.p){ref.happy=Math.max(ref.happy||0,2.5);}
+  if(h.direct&&audio.ctx&&h.point&&h.point.distanceTo(P.pos)<60)WP.weaponSound(h.weapon.id,audio.ctx,audio.sfx,'impact');
+}
+// pickups around the city
+function buildWeaponPickups(){
+  if(!WP)return;const ids=WP.WEAPONS.map(w=>w.id).filter(id=>id!==WP.START_WEAPON);
+  const spots=[];
+  for(let i=0;i<artSpots.length&&spots.length<ids.length*2;i+=2){const p=artSpots[i].clone();p.x+=6;p.z+=6;spots.push(p);}
+  spots.forEach((p,i)=>{collide(p,1.5);const id=ids[i%ids.length];const def=WDEF(id);
+    let b;if(PR&&PR.buildWeaponPickup)b=PR.buildWeaponPickup(def.color);else{const g=new THREE.Group();g.add(M(G.cyl,mat(0x2a2a30),.6,1,.6,0,.5,0));const mount=new THREE.Object3D();mount.position.y=1.6;g.add(mount);b={g,mount,update:()=>{}};}
+    const gun=WP.buildGun(id);gun.g.scale.setScalar(1.4);b.mount.add(gun.g);
+    b.g.position.set(p.x,0,p.z);scene.add(b.g);W.pickups.push({id,b,gun,pos:new THREE.Vector3(p.x,0,p.z),taken:false,respawn:0});});
+}
+function updateWeaponPickups(dt){
+  const t=performance.now()*.001;
+  for(const pk of W.pickups){const d=d2(pk.pos,P.pos);const near=d<200;pk.b.g.visible=d<500;
+    if(near){pk.b.update&&pk.b.update(dt,t,{night});if(pk.b.mount){pk.b.mount.rotation.y+=dt*1.2;pk.b.mount.position.y=1.6+Math.sin(t*2+pk.pos.x)*.08;}}
+    if(pk.taken){pk.respawn-=dt;if(pk.respawn<=0){pk.taken=false;pk.gun.g.visible=true;}continue;}
+    if(d<2.2&&!P.vehicle&&P.pos.y<3){pk.taken=true;pk.respawn=90;pk.gun.g.visible=false;giveWeapon(pk.id);}}
+}
+// HUD: crosshair, heat, hotbar
+function updateCrosshair(){
+  const ch=$('#crosshair');if(!ch)return;const on=armed()&&state.started;ch.hidden=!on;if(!on)return;
+  const def=W.def;const moving=Math.hypot(P.vel.x,P.vel.z)>1;const spread=(def.spread*(W.aiming?.4:1)*(moving?1.6:1))*500+6;
+  ch.style.setProperty('--sp',spread.toFixed(1)+'px');ch.style.setProperty('--heat',W.heat.toFixed(3));ch.classList.toggle('hit',W.hitT>0);ch.classList.toggle('over',W.over);ch.style.setProperty('--wc','#'+def.color.toString(16).padStart(6,'0'));
+}
+function renderHotbar(){
+  const hb=$('#hotbar');if(!hb||!WP)return;
+  hb.innerHTML=WP.WEAPONS.map((w,i)=>{const own=state.weapons&&state.weapons.includes(w.id);return `<div class="slot${own?'':' empty'}${state.weapon===w.id?' on':''}" style="--wc:#${w.color.toString(16).padStart(6,'0')}"><b>${(i+1)%10}</b><span>${own?esc(w.name):'?'}</span></div>`;}).join('');
+  hb.hidden=!state.weapons||!state.weapons.length;
+}
+
+// ================= THE MANHUNT: the Dusty City Rangers are looking for Phoenix =================
+// Word got around that a fiery bird-person has been seen flying over the city. The Rangers would very much
+// like to "have a chat". Wanted level 0–5 stars. Hide, blend into crowds, change costumes, or ride out a dust storm.
+const _UPV=new THREE.Vector3(0,1,0);
+const RG={list:[],drones:[],towers:[],blimp:null,outpost:null,outpostSpot:null,hides:[],racks:[],spawnT:3,seenT:0,searchT:0,lastSeen:new THREE.Vector3(),everSeen:false,disguise:0,chaseMsgT:0,iconTex:{}};
+const RANGER_LINES=['Phoenix! Hold up, we just want to talk!','Bird-person spotted! Moving in.','Copy that, flaming feathers at my twelve.','Sir! Ma’am! Wings! Please stop!','Dispatch, I have eyes on the Phoenix.','Nobody flies over the Man on my shift!'];
+const LOST_LINES=['Lost visual. Anyone see where the bird went?','Dispatch, Phoenix is gone. Again.','Checking the porta-potties… every single one.','Was that a costume change? Ugh.'];
+function iconSprite(ch,col){
+  const key=ch+col;let t=RG.iconTex[key];
+  if(!t){const c=document.createElement('canvas');c.width=c.height=128;const g=c.getContext('2d');g.fillStyle='rgba(20,15,11,.85)';g.beginPath();g.arc(64,64,52,0,TAU);g.fill();g.lineWidth=8;g.strokeStyle=col;g.stroke();g.fillStyle=col;g.font='900 78px Rubik, system-ui, sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(ch,64,70);t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;RG.iconTex[key]=t;}
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,depthWrite:false,depthTest:false,transparent:true}));sp.scale.set(.8,.8,.8);sp.position.y=2.55;sp.renderOrder=5;return sp;
+}
+function makeRanger(){
+  const officer=rnd()<.25;
+  const c=makeCharacter({mask:false,kind:officer?'knight':'rogue',body:0xd9c690,cape:0xb39a5e,hat:officer?0x8a7a4a:0xc9b57c,neon:0xffa21a});
+  // khaki vest stripe + radio antenna so they read as Rangers from far away
+  const vest=new THREE.Mesh(new THREE.TorusGeometry(.33,.05,6,20),neon(0xffa21a,.6));vest.rotation.x=Math.PI/2;vest.position.y=1.15;c.g.add(vest);
+  const ant=M(G.cyl,mat(0x222222),.012,.5,.012,.18,2.05,-.12);c.g.add(ant);
+  const q=iconSprite('?','#ffd23f'),ex=iconSprite('!','#ff3b2e');q.visible=ex.visible=false;c.g.add(q,ex);
+  scene.add(c.g);
+  const r={isRanger:true,c,g:c.g,pos:c.g.position,heading:R(0,TAU),st:'patrol',stT:0,sus:0,target:new THREE.Vector3(),fx:null,fxT:0,fxIcon:null,speed:0,q,ex,radioT:R(2,8),bob:0,lift:0,vy:0,officer};
+  RG.list.push(r);return r;
+}
+function rangerSpawnPoint(minD,maxD){
+  const f=P.pos;let best=null;
+  for(let k=0;k<12;k++){const a=camYaw+R(-1.3,1.3);const d=R(minD,maxD);const p=new THREE.Vector3(f.x+Math.sin(a)*d,0,f.z+Math.cos(a)*d);// behind-ish the camera means out of view
+    if(Math.hypot(p.x,p.z)>FENCE_IN-12)continue;collide(p,.6);best=p;break;}
+  return best||new THREE.Vector3(f.x+R(-90,90),0,f.z+R(-90,90));
+}
+function buildManhunt(){
+  for(let i=0;i<6;i++){const r=makeRanger();r.pos.copy(rangerSpawnPoint(60,160));newPatrol(r);}
+  // outpost
+  const op=clockPos(4.3,300);collide(op,6);
+  if(PR&&PR.buildRangerOutpost){const b=PR.buildRangerOutpost();b.g.position.set(op.x,0,op.z);b.g.rotation.y=-4.3/12*TAU+Math.PI;scene.add(b.g);RG.outpost=b;
+    if(b.obs)for(const o of b.obs){const c=Math.cos(b.g.rotation.y),s2=Math.sin(b.g.rotation.y);obstacles.push({x:op.x+o[0]*c+o[1]*s2,z:op.z-o[0]*s2+o[1]*c,r:o[2]});}
+    RG.outpostSpot=b.spot?b.g.localToWorld(b.spot.clone()):op.clone();}
+  else RG.outpostSpot=op.clone();
+  RG.outpostSpot.y=0;
+  // searchlight towers around the city
+  if(PR&&PR.buildSearchTower)for(const [h,r] of [[2.5,470],[5,480],[7,480],[9.5,470],[12,250],[3,150],[9,150]]){const p=clockPos(h,r);collide(p,3);const b=PR.buildSearchTower();b.g.position.set(p.x,0,p.z);scene.add(b.g);
+    if(b.obs)for(const o of b.obs)obstacles.push({x:p.x+o[0],z:p.z+o[1],r:o[2]});RG.towers.push({b,pos:new THREE.Vector3(p.x,0,p.z),ph:R(0,TAU),sp:R(.25,.45),aim:new THREE.Vector3()});}
+  // porta-potty hiding spots: one decorated porta in every camp district, plus the static banks
+  if(PR&&PR.buildPorta)for(let i=0;i<22;i++){const h=2.3+i*(7.4/22),r=pick(STREETS)[1]+R(-2,2);const p=clockPos(h,r);collide(p,1.2);const b=PR.buildPorta();b.g.position.set(p.x,0,p.z);b.g.rotation.y=-h/12*TAU+(rnd()<.5?0:Math.PI);scene.add(b.g);obstacles.push({x:p.x,z:p.z,r:.9});
+    const front=new THREE.Vector3(0,0,1.4).applyAxisAngle(_UPV,b.g.rotation.y).add(b.g.position);RG.hides.push({b,pos:new THREE.Vector3(p.x,0,p.z),front,door:0,want:0,occ:false});}
+  // free costume racks: change your look, lose the heat
+  if(PR&&PR.buildCostumeRack)for(const [h,r] of [[2.5,305],[4,335],[5.5,395],[6.5,305],[8,335],[9.5,395],[7.25,350],[3,425],[9,425]]){const p=clockPos(h,r);collide(p,2);const b=PR.buildCostumeRack();b.g.position.set(p.x,0,p.z);b.g.rotation.y=-h/12*TAU+Math.PI;scene.add(b.g);
+    if(b.obs)for(const o of b.obs){const c=Math.cos(b.g.rotation.y),s2=Math.sin(b.g.rotation.y);obstacles.push({x:p.x+o[0]*c+o[1]*s2,z:p.z-o[0]*s2+o[1]*c,r:o[2]});}RG.racks.push({b,pos:new THREE.Vector3(p.x,0,p.z),cool:0});}
+}
+function newPatrol(r){const f=P.pos;const a=R(0,TAU),d=R(15,70);r.target.set(r.pos.x+Math.sin(a)*d,0,r.pos.z+Math.cos(a)*d);if(rnd()<.35)r.target.set(f.x+R(-60,60),0,f.z+R(-60,60));if(Math.hypot(r.target.x,r.target.z)>FENCE_IN-15)r.target.multiplyScalar(.8);}
+function wantedStars(){return Math.floor(state.wanted||0);}
+function setWanted(v){const before=wantedStars();state.wanted=clamp(v,0,5.99);const after=wantedStars();
+  if(after>before){sfx.ranger();if(after>=2&&before<2)toast('More Rangers are joining the search.');if(after===3)toast('Ranger drones are up. Stay under cover.');if(after===5)toast('The Ranger blimp is out. They really want that chat.');}
+}
+// can this ranger see Phoenix right now? returns detection rate (0 = not seen)
+function playerVisibility(){
+  if(P.hidden)return 0;let v=1;
+  if(P.flying||P.sky)v*=2.5;
+  if(P.vehicle)v*=P.vehicle.kind==='art'?.6:1.2;
+  if(!P.vehicle&&!P.flying&&!P.sky){const crowd=crowdAround(P.pos.x,P.pos.z,6);if(crowd>=5)v*=P.dancing?.12:.35;else if(crowd>=2)v*=.7;}
+  if(RG.disguise>0)v*=.45;
+  if(P.sitting)v*=.6;
+  return v;
+}
+function crowdAround(x,z,rad){let n=0;const r2=rad*rad;for(let i=0;i<crowdN;i+=2){if(!crowdActive(i))continue;if((cX[i]-x)**2+(cZ[i]-z)**2<r2)n+=2;}for(const q of npcs){const g=q.p.g.position;if((g.x-x)**2+(g.z-z)**2<r2)n++;}return n;}
+function lineClear(a,b){
+  const dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz);if(b.y>9)return true;
+  for(let t=2;t<len-1.5;t+=1.5){const x=a.x+dx*t/len,z=a.z+dz*t/len;for(const o of obstaclesNear(x,z)){if(o.ramp||o.r<.7)continue;if((x-o.x)**2+(z-o.z)**2<o.r*o.r)return false;}}
+  return true;
+}
+function viewDist(){const base=lerp(28,48,1-night);return lerp(base,9,state.dust);}
+function updateManhunt(dt){
+  if(!RG.list.length)return;
+  RG.grace=Math.max(0,(RG.grace||0)-dt);
+  const f=P.vehicle?P.vehicle.pos:P.pos;const vis=RG.grace>0||P.ride?0:playerVisibility();const st=wantedStars();const vd=viewDist();
+  RG.disguise=Math.max(0,RG.disguise-dt);
+  let seenNow=false,seer=null;
+  // keep the right number of rangers near Phoenix
+  const want=6+st*2;RG.spawnT-=dt;
+  if(RG.spawnT<=0){RG.spawnT=st?2.5:6;
+    let far=null;for(const r of RG.list){if(d2(r.pos,f)>230&&r.st!=='chase'){far=r;break;}}
+    if(far){far.pos.copy(rangerSpawnPoint(st?55:80,st?120:170));far.st=st?'search':'patrol';far.stT=0;far.sus=0;if(st)far.target.copy(RG.lastSeen).add(_wa.set(R(-12,12),0,R(-12,12)));else newPatrol(far);}
+    else if(RG.list.length<want&&RG.list.length<18){const r=makeRanger();r.pos.copy(rangerSpawnPoint(st?55:80,st?120:170));r.st=st?'search':'patrol';if(st)r.target.copy(RG.lastSeen);else newPatrol(r);}}
+  const t=performance.now()*.001;
+  for(const r of RG.list){
+    const d=d2(r.pos,f);const near=d<220;r.g.visible=d<260;
+    // status effects from the guns
+    if(r.fx){r.fxT-=dt;if(r.fxT<=0){r.fx=null;if(r.fxIcon){r.g.remove(r.fxIcon);r.fxIcon=null;}r.lift=0;}}
+    const fx=r.fx;
+    if(fx==='stun'||fx==='knockback'){r.speed=0;if(near){play(r.c,r.fxT>.6?'Lie_Idle':'Sit_Floor_Idle',.2);r.c.mixer.update(dt);}r.q.visible=r.ex.visible=false;r.g.position.y=lerp(r.g.position.y,0,dt*6);continue;}
+    if(fx==='trap'){r.speed=0;r.lift=Math.min(3.2,r.lift+dt*1.6);r.g.position.y=r.lift+Math.sin(t*2+r.heading)*.15;r.g.rotation.y+=dt*.8;if(near){play(r.c,'Jump_Idle',.2);r.c.mixer.update(dt);}r.q.visible=r.ex.visible=false;continue;}
+    if(r.g.position.y>0){r.vy-=20*dt;r.g.position.y=Math.max(0,r.g.position.y+r.vy*dt);if(r.g.position.y===0)r.vy=0;}
+    // perception
+    let sees=0;const blind=fx==='blind'||fx==='confuse';
+    if(!blind&&vis>0&&d<vd*(P.flying||P.sky?3:1)){
+      const ang=Math.atan2(f.x-r.pos.x,f.z-r.pos.z);const da=Math.abs(((ang-r.heading+Math.PI)%TAU+TAU)%TAU-Math.PI);
+      if((da<1.0||d<5)&&lineClear(r.pos,f))sees=vis*(1.4-d/(vd*1.6))*(r.st==='chase'||r.st==='search'?2:1)*(st?1.6:1);}
+    if(sees>0){r.sus=Math.min(1.2,r.sus+dt*sees*1.15);}else r.sus=Math.max(0,r.sus-dt*.25);
+    if(r.sus>=1){seenNow=true;seer=r;if(r.st!=='chase'){r.st='chase';r.stT=0;if(rnd()<.6)rangerSay(r,pick(RANGER_LINES));}}
+    else if(r.sus>.25&&r.st==='patrol'){r.st='notice';r.stT=0;}
+    // behaviour
+    r.stT+=dt;let tx=r.target.x,tz=r.target.z,spd=0;
+    if(fx==='confuse'){if(r.stT>1.2){r.stT=0;r.target.set(r.pos.x+R(-8,8),0,r.pos.z+R(-8,8));}spd=2.5;}
+    else if(r.st==='chase'){tx=f.x;tz=f.z;spd=7+st*.65;if(sees<=0&&r.sus<.6){r.st='search';r.stT=0;r.target.copy(RG.lastSeen);}}
+    else if(r.st==='notice'){tx=f.x;tz=f.z;spd=0;if(r.sus<.1){r.st='patrol';newPatrol(r);}}
+    else if(r.st==='search'){spd=4.2+st*.3;if(d2(r.pos,r.target)<2.5){r.target.set(RG.lastSeen.x+R(-18,18),0,RG.lastSeen.z+R(-18,18));}if(r.stT>30&&!st){r.st='patrol';newPatrol(r);}}
+    else{spd=1.6;if(d2(r.pos,r.target)<2||r.stT>25){r.stT=0;newPatrol(r);}}
+    if(fx==='slow')spd*=.3;if(fx==='blind')spd=Math.min(spd,2);
+    if(r.hold){spd=0;tx=r.pos.x+Math.sin(r.heading);tz=r.pos.z+Math.cos(r.heading);}
+    const wantH=Math.atan2(tx-r.pos.x,tz-r.pos.z);r.heading=lerpAngle(r.heading,wantH,Math.min(1,dt*(r.st==='chase'?7:3)));
+    r.speed=lerp(r.speed,spd,Math.min(1,dt*4));
+    r.pos.x+=Math.sin(r.heading)*r.speed*dt;r.pos.z+=Math.cos(r.heading)*r.speed*dt;
+    if(collide(r.pos,.4,true)&&r.st!=='chase')r.target.set(r.pos.x+R(-20,20),0,r.pos.z+R(-20,20));
+    r.g.rotation.y=r.heading;
+    if(near){if(d>90&&frameNo%3)continue;animPerson(r.c,r.speed>.3?'walk':(r.st==='notice'?'idle':'idle'),dt*(d>90?3:1),r.speed);}
+    r.q.visible=r.st==='notice'||(r.st==='search'&&Math.sin(t*4)>0);r.ex.visible=r.st==='chase';
+    r.radioT-=dt;
+    // caught!
+    if(r.st==='chase'&&!fx&&d<(P.vehicle?P.vehicle.r+1.2:1.25)&&!P.flying&&!P.sky&&!P.ride&&f.y<2.5)caught(r);
+  }
+  // drones, towers, blimp
+  updateDrones(dt,f,vis,st,(seen,who)=>{if(seen){seenNow=true;seer=seer||who;}});
+  // wanted level bookkeeping
+  if(seenNow){RG.lastSeen.copy(f);RG.seenT=0;RG.everSeen=true;if(st===0)setWanted(1);
+    if(P.flying||P.sky)setWanted(state.wanted+dt*.25);
+    if(RG.chaseMsgT<=0&&st===0){RG.chaseMsgT=20;toast('A Ranger spotted you! Break line of sight, hide in a porta-potty, blend into a dancing crowd, or grab a new costume.');}
+    for(const r of RG.list){if(r.st!=='chase'&&!r.fx&&d2(r.pos,f)<60&&r.st!=='search'){r.st='search';r.stT=0;r.target.copy(f);}}
+  }else if(st>0){RG.seenT+=dt;const need=7+st*3;if(RG.seenT>need){RG.seenT=0;setWanted(state.wanted-1);if(wantedStars()===0){toast(pick(LOST_LINES).replace(/^/,'Ranger radio: "')+'"');floatText('You got away');addKarma(5,'clean getaway');for(const r of RG.list){if(r.st!=='patrol'){r.st='patrol';newPatrol(r);}}}}}
+  RG.chaseMsgT-=dt;
+  grade.uniforms.uAlert.value=lerp(grade.uniforms.uAlert.value,st>0&&RG.seenT<1.5?Math.min(1,.4+st*.15):0,Math.min(1,dt*3));
+  updateHides(dt);updateRacks(dt);
+}
+function rangerSay(r,line){if(r.radioT>0)return;r.radioT=R(6,12);if(d2(r.pos,P.pos)<60){const b=makeBubble(line);b.position.y=3.2;r.g.add(b);setTimeout(()=>{r.g.remove(b);b.material.map.dispose();b.material.dispose();},3200);}sfx.ranger();}
+function rangerHit(r,h){
+  const e=h.effect||'stun';const dur=(h.effectDur||3)*(h.direct?1:.7);
+  const was=!!r.fx;
+  if(r.fx&&r.fxIcon){r.g.remove(r.fxIcon);r.fxIcon=null;}
+  r.fx=e;r.fxT=Math.max(r.fxT||0,dur);r.st='search';r.sus=Math.max(r.sus,.6);
+  if(WP&&WP.hitEffectSprite){r.fxIcon=WP.hitEffectSprite(e);r.fxIcon.position.y=2.4;r.g.add(r.fxIcon);}
+  if(e==='knockback'&&h.dir){r.pos.addScaledVector(_wa.set(h.dir.x,0,h.dir.z).normalize(),4);r.vy=6;r.g.position.y=.01;collide(r.pos,.4,true);}
+  if(e==='trap')r.lift=Math.max(r.lift,.2);
+  state.stats.stunned=(state.stats.stunned||0)+(h.direct?1:0);state.stats.hits=(state.stats.hits||0)+1;
+  RG.lastSeen.copy(P.pos);RG.seenT=0;if(h.direct&&!was)setWanted(Math.max(1,state.wanted+.25));
+  if(h.direct&&rnd()<.3)rangerSay(r,pick(['Hey! That’s glitter! That never comes out!','Paint?! I just washed this vest!','Ooh, pretty… I mean, stop!','I can’t see! Is it art? Is this art?']));
+}
+let caughtLock=false;
+function caught(r){
+  if(caughtLock)return;caughtLock=true;sfx.ranger();state.stats.rangers++;
+  modal('Ranger chat',pick([
+    'A Ranger in a dusty khaki vest catches up, completely out of breath. "Phoenix. Buddy. You cannot keep flying over the burn perimeter. People think you’re a firework." They walk you to the outpost for a cup of tea and a long talk about airspace.',
+    '"Gotcha!" The Ranger grins and taps your shoulder. "Tag, you’re talked-to." Twenty minutes later you know far more about playa safety than you ever wanted to.',
+    'The Ranger doesn’t even look mad. "Look, the wings are amazing. But the glitter cannon? We’re finding sparkles in the porta-potties." You’re escorted to the outpost for a friendly chat.']),'Fair enough',()=>{
+    if(P.vehicle)exitVehicle();if(state.job&&state.job.id==='shuttle')endJob(false,'The Rangers hand the art car back to its crew.',0);
+    const sp=RG.outpostSpot||CAMP;P.pos.set(sp.x+R(-2,2),0,sp.z+R(-2,2));P.vel.set(0,0,0);
+    state.wanted=0;RG.seenT=0;addKarma(-5,'ranger chat');
+    for(const q of RG.list){q.st='patrol';q.sus=0;q.pos.copy(rangerSpawnPoint(80,170));newPatrol(q);}
+    caughtLock=false;});
+}
+// drones, searchlight towers and the blimp
+const _drv=new THREE.Vector3();
+function updateDrones(dt,f,vis,st,report){
+  const t=performance.now()*.001;const wantDrones=st>=3||(st>=2&&night>.5)?Math.min(4,st-1):0;
+  if(PR&&PR.buildRangerDrone)while(RG.drones.length<wantDrones){const b=PR.buildRangerDrone();scene.add(b.g);const p=rangerSpawnPoint(70,120);b.g.position.set(p.x,28,p.z);RG.drones.push({b,pos:b.g.position,ph:R(0,TAU),r:R(10,22)});}
+  for(let i=RG.drones.length-1;i>=0;i--){const dr=RG.drones[i];
+    if(i>=wantDrones){dr.pos.y+=dt*15;if(dr.pos.y>120){scene.remove(dr.b.g);RG.drones.splice(i,1);}continue;}
+    const c=RG.lastSeen;const a=t*.6+dr.ph;_drv.set(c.x+Math.cos(a)*dr.r,24+Math.sin(t+dr.ph)*2,c.z+Math.sin(a*1.3)*dr.r);
+    dr.pos.lerp(_drv,Math.min(1,dt*.8));dr.b.update&&dr.b.update(dt,t,{night});
+    if(dr.b.cone){dr.b.cone.scale.set(1,dr.pos.y,1);}
+    if(vis>0&&Math.hypot(f.x-dr.pos.x,f.z-dr.pos.z)<6.5&&f.y<dr.pos.y)report(true,dr);
+  }
+  for(const tw of RG.towers){const d=d2(tw.pos,f);const act=night>.4||st>=2;tw.b.g.visible=d<900;if(!tw.b.g.visible)continue;tw.b.update&&tw.b.update(dt,t,{night});
+    if(tw.b.beam)tw.b.beam.visible=act;if(!act)continue;
+    // sweep, and lock on to Phoenix if wanted and close
+    const sweep=t*tw.sp+tw.ph;const R0=st>0&&d<140?d:60+Math.sin(sweep*.7)*35;
+    _drv.set(tw.pos.x+Math.sin(sweep)*R0,0,tw.pos.z+Math.cos(sweep)*R0);if(st>0&&d<140)_drv.lerp(RG.lastSeen,.8);
+    tw.aim.lerp(_drv,Math.min(1,dt*1.5));
+    if(tw.b.head){const hp=new THREE.Vector3();tw.b.head.getWorldPosition(hp);const dx=tw.aim.x-hp.x,dz=tw.aim.z-hp.z,dy=-hp.y;const hd=Math.hypot(dx,dz);tw.b.head.rotation.y=Math.atan2(dx,dz)-tw.b.g.rotation.y;tw.b.head.rotation.x=-Math.atan2(dy,hd);if(tw.b.beam)tw.b.beam.scale.z=Math.hypot(hd,dy);}
+    if(vis>0&&Math.hypot(f.x-tw.aim.x,f.z-tw.aim.z)<5&&f.y<20&&!P.hidden)report(true,tw);
+  }
+  if(st>=5&&!RG.blimp&&PR&&PR.buildRangerBlimp){const b=PR.buildRangerBlimp();scene.add(b.g);b.g.position.set(f.x+200,90,f.z);RG.blimp={b,pos:b.g.position};}
+  if(RG.blimp){const B=RG.blimp;const tgt=st>=4?RG.lastSeen:_drv.set(B.pos.x+300,0,B.pos.z);_drv.set(tgt.x,st>=4?85:140,tgt.z);B.pos.lerp(_drv,Math.min(1,dt*.15));B.b.g.rotation.y=lerpAngle(B.b.g.rotation.y,Math.atan2(tgt.x-B.pos.x,tgt.z-B.pos.z),dt*.3);B.b.update&&B.b.update(dt,t,{night});
+    if(B.b.beam){B.b.beam.scale.z=B.pos.y;}
+    if(vis>0&&st>=4&&Math.hypot(f.x-B.pos.x,f.z-B.pos.z)<9)report(true,B);
+    if(st<4&&B.pos.y>130){scene.remove(B.b.g);RG.blimp=null;}}
+}
+// hiding in porta-potties
+function nearHide(){let best=null,bd=2.6;for(const h of RG.hides){const d=d2(h.front,P.pos);if(d<bd){bd=d;best=h;}}return best;}
+function enterHide(h){
+  P.hidden=h;h.occ=true;h.want=1;if(h.b.setOccupied)h.b.setOccupied(true);player.g.visible=false;if(W.gun)W.gun.g.visible=false;
+  P.vel.set(0,0,0);P.pos.copy(h.pos);sfx.chime();
+  const watched=RG.list.some(r=>r.st==='chase'&&d2(r.pos,h.pos)<12);
+  if(watched){RG.lastSeen.copy(h.pos);for(const r of RG.list)if(r.st==='chase'){r.st='search';r.target.copy(h.front);r.stT=0;}h.suspect=true;floatText('They saw you go in…');}
+  else{h.suspect=false;floatText('Hidden. Press E to step out.');}
+  setTimeout(()=>{h.want=0;},700);
+}
+function leaveHide(quiet){const h=P.hidden;if(!h)return;P.hidden=null;h.occ=false;h.want=1;if(h.b.setOccupied)h.b.setOccupied(false);setTimeout(()=>{h.want=0;},900);
+  P.pos.copy(h.front);player.g.visible=true;P.heading=Math.atan2(h.front.x-h.pos.x,h.front.z-h.pos.z);if(!quiet)sfx.chime();}
+function updateHides(dt){
+  for(const h of RG.hides){h.door=lerp(h.door,h.want,Math.min(1,dt*8));if(h.b.door)h.b.door.rotation.y=-1.9*h.door;}
+  const h=P.hidden;if(!h)return;
+  // a suspicious ranger knocks and opens the door
+  if(h.suspect)for(const r of RG.list){if(!r.fx&&d2(r.pos,h.front)<1.6){h.want=1;leaveHide(true);caught(r);return;}}
+  if(wantedStars()>0&&!h.suspect){RG.seenT+=dt*.8;}
+}
+function updateRacks(dt){for(const k of RG.racks){k.cool-=dt;const d=d2(k.pos,P.pos);if(d<200&&k.b.update)k.b.update(dt,performance.now()*.001,{night});}}
+function nearRack(){for(const k of RG.racks)if(d2(k.pos,P.pos)<3.4)return k;return null;}
+function useRack(k){
+  if(k.cool>0){floatText('The closet is being restocked.');return;}k.cool=40;
+  const ids=OUTFITS.filter(o=>o.id!==state.outfit&&(!o.unlock||state.unlocks[o.unlock])).map(o=>o.id);if(ids.length)wearOutfit(pick(ids));
+  RG.disguise=60;const seen=RG.list.some(r=>r.st==='chase'&&r.sus>=1);
+  if(wantedStars()>0&&!seen){setWanted(state.wanted-1);floatText('New look. One star off.');}else floatText('New look!');
+  oneShot(player,'Interact',.9);sfx.chime();
+}
+
+function onDropLanded(first){
+  RG.grace=first?50:20;for(const r of RG.list){if(d2(r.pos,P.pos)<70&&r.st!=='chase'){r.pos.copy(rangerSpawnPoint(90,170));newPatrol(r);}}
+  if(WP&&!state.weapons.includes(WP.START_WEAPON)){setTimeout(()=>giveWeapon(WP.START_WEAPON),900);}
+  if(first)setTimeout(()=>toast('Welcome home, Phoenix. Word is the Rangers are looking for a fiery bird-person. Keep your head down, find your camp, and press B any time to call the drop plane back.'),3200);
+}
 // ================= ambient skydivers =================
 const ambientSky={plane:null,t:25,active:null,divers:[]};
 function updateAmbientSky(dt){
@@ -2258,16 +2752,17 @@ function update(dt,rdt){rdt=rdt||dt;
     if((keys.Space||touch.jump)&&P.onGround){touch.jump=false;P.vy=6.5;P.onGround=false;P.sitting=false;oneShot(player,'Jump_Full_Short',.75);}
     P.vy-=20*dt;P.pos.y+=P.vy*dt;const ghp=groundHeight(P.pos.x,P.pos.z);if(P.pos.y<=ghp){P.pos.y=ghp;P.vy=0;P.onGround=true;}else if(P.pos.y>ghp+.25)P.onGround=false;
     const spd=Math.hypot(P.vel.x,P.vel.z);
-    if(spd>.3)P.heading=lerpAngle(P.heading,Math.atan2(P.vel.x,P.vel.z),Math.min(1,dt*10));
+    const arm=armed()&&!P.sitting&&!P.dancing;
+    if(arm)P.heading=lerpAngle(P.heading,camYaw+Math.PI,Math.min(1,dt*14));
+    else if(spd>.3)P.heading=lerpAngle(P.heading,Math.atan2(P.vel.x,P.vel.z),Math.min(1,dt*10));
     player.g.rotation.y=P.heading;
-    animPerson(player,P.sitting?'sit':P.dancing?'dance':'walk',dt,spd);
+    if(arm)animArmed(dt,spd);else{stopUpper(player);animPerson(player,P.sitting?'sit':P.dancing?'dance':'walk',dt,spd);}
     if(spd>.6&&P.onGround){stepT-=dt*spd;if(stepT<=0){stepT=1.7;sfx.step();}}
     mphShown=0;
   }
-  if(speeding)state.heat=Math.min(3.99,state.heat+dt*.33);
-  else state.heat=Math.max(0,state.heat-dt*(ranger.active&&d2(ranger.pos,focusPos())<70?.03:.09));
-  updateRanger(dt);
-  updateArtCars(dt);updateNPCs(dt);updateCyclists(dt);updatePickups(dt);updateBurns(dt);updateFireworks(dt);updateDust(dt);updatePoofs(dt);updateJob(dt);updateLamps();updateSoundCamps(dt);updateDevils(dt);updatePuffs(dt);updateChatter(dt);updateCrowd(dt);crowdEvents();updateDali(dt);updateAmbientSky(dt);updatePlaneAuto(dt);updateTrail(dt);updateMasters(dt);{const tt=performance.now()*.001;updateLaserField(tt);updateFlares(tt);}updateSkyFlares(dt);updateLightPool();
+  if(speeding){setWanted(state.wanted+dt*.33);RG.lastSeen.copy(focusPos());RG.seenT=0;}
+  updateRanger(dt);updateManhunt(dt);updateArms(dt);
+  updateArtCars(dt);updateNPCs(dt);updateCyclists(dt);updatePickups(dt);updateBurns(dt);updateFireworks(dt);updateDust(dt);updatePoofs(dt);updateJob(dt);updateLamps();updateSoundCamps(dt);updateDevils(dt);updatePuffs(dt);updateChatter(dt);updateCrowd(dt);crowdEvents();updateDali(dt);updateAmbientSky(dt);updatePlaneAuto(dt);updateDropPlane(dt);updateDropFx(dt);updatePads(dt);updateTrail(dt);updateMasters(dt);{const tt=performance.now()*.001;updateLaserField(tt);updateFlares(tt);}updateSkyFlares(dt);updateLightPool();
   updateQuest();
   const tgt=QUESTS[state.quest]&&QUESTS[state.quest].target();
   beacon.visible=!!tgt;if(tgt){beacon.position.x=tgt.x;beacon.position.z=tgt.z;}
@@ -2279,7 +2774,7 @@ function update(dt,rdt){rdt=rdt||dt;
     if(st<0)lvl=0;else audio.station=st;
     audio.musicLevel=lvl;const t=audio.ctx.currentTime;
     audio.music.gain.setTargetAtTime(lvl*.55,t,.15);audio.lp.frequency.setTargetAtTime(350+lvl*lvl*14000,t,.2);
-    audio.wind.gain.setTargetAtTime(.035+state.dust*.32,t,.4);audio.crowdG.gain.setTargetAtTime(Math.min(.07,crowdNear*.0018),t,.5);
+    {const fs=P.sky?P.sky.vel.length():P.flying?P.fv.length():P.ride&&P.ride.drop?40:0;audio.wind.gain.setTargetAtTime(.035+state.dust*.32+clamp(fs/70,0,1)*.4,t,.3);}audio.crowdG.gain.setTargetAtTime(Math.min(.07,crowdNear*.0018),t,.5);
     if(P.ride||ambientSky.active){const dd=P.ride?0:ambientSky.plane.g.position.distanceTo(camera.position);const lv=P.ride?.09:clamp(1-dd/1500,0,1)*.05;audio.engine.g.gain.setTargetAtTime(lv,t,.3);audio.engine.o1.frequency.setTargetAtTime(95,t,.3);audio.engine.o2.frequency.setTargetAtTime(143,t,.3);}else{
     const ev=P.vehicle&&P.vehicle.kind==='art'?Math.abs(P.vehicle.speed):-1;const rv=ranger.active?clamp(1-d2(ranger.pos,focusPos())/90,0,1):0;
     audio.engine.g.gain.setTargetAtTime(ev>=0?.05+ev*.007:rv*.06,t,.2);const ef=ev>=0?38+ev*1.5:45+ranger.speed*2;audio.engine.o1.frequency.setTargetAtTime(ef,t,.2);audio.engine.o2.frequency.setTargetAtTime(ef*1.51,t,.2);}
@@ -2288,12 +2783,12 @@ function update(dt,rdt){rdt=rdt||dt;
 }
 function fenceMsg(){if(performance.now()-lastFenceMsg>6000){lastFenceMsg=performance.now();toast('That is the trash fence. Nothing out there but more dust.');}}
 function updateRanger(dt){
-  const stars=Math.floor(state.heat);const f=focusPos();
+  const stars=(P.vehicle||state.wanted>=2)&&!P.hidden?Math.floor(state.wanted):0;const f=focusPos();
   if(stars>0&&!ranger.active){
     ranger.active=true;ranger.leaving=0;ranger.g.visible=true;
     const v=P.vehicle;const back=v?v.heading+Math.PI+R(-.6,.6):R(0,TAU);
     ranger.pos.set(f.x+Math.sin(back)*130,0,f.z+Math.cos(back)*130);collide(ranger.pos,2);ranger.heading=back+Math.PI;ranger.speed=0;
-    toast('A Ranger saw you speeding and is on the way. Slow down or lose them.');sfx.ranger();
+    toast(P.vehicle?'A Ranger truck is coming. Slow down or lose them.':'A Ranger truck joins the search.');sfx.ranger();
   }
   if(!ranger.active)return;
   ranger.g.userData.lb.material.emissiveIntensity=(Math.sin(performance.now()*.02)>0)?6:.3;
@@ -2307,7 +2802,7 @@ function updateRanger(dt){
   ranger.g.rotation.y=ranger.heading;
   if(stars>0&&d2(ranger.pos,f)<(P.vehicle?P.vehicle.r+3:3.5)){
     sfx.ranger();
-    modal('Ranger chat','A Ranger in khaki pulls alongside, calm as anything. "Hey Phoenix. Art cars roll at 5 mph out here, there are people walking everywhere in the dark. Let’s take a breather and hand the wheel back."','Fair enough',()=>{state.stats.rangers++;if(state.job&&state.job.id==='shuttle')endJob(false,'The Ranger hands the art car back to its crew. Shuttle run over.',0);if(P.vehicle)exitVehicle();state.heat=0;});
+    modal('Ranger chat','A Ranger in khaki pulls alongside, calm as anything. "Hey Phoenix. Art cars roll at 5 mph out here, there are people walking everywhere in the dark. Let’s take a breather and hand the wheel back."','Fair enough',()=>{state.stats.rangers++;if(state.job&&state.job.id==='shuttle')endJob(false,'The Ranger hands the art car back to its crew. Shuttle run over.',0);if(P.vehicle)exitVehicle();state.wanted=0;RG.seenT=0;const sp=RG.outpostSpot;if(sp&&!P.vehicle){P.pos.set(sp.x,0,sp.z);}});
   }
 }
 function updateArtCars(dt){
@@ -2405,22 +2900,25 @@ function updateDust(dt){
 function updateCamera(dt,cinematic){
   if(cinematic){const a=performance.now()*.00004+2.25;camera.position.set(Math.sin(a)*150,28,Math.cos(a)*150+20);camera.lookAt(0,20,-30);camera.fov=55;camera.updateProjectionMatrix();return;}
   const f=focusPos();const v=P.vehicle;
-  const dist=P.ride?26:P.sky?Math.max(camDist,9):P.flying?Math.max(camDist,8):v?(v.kind==='art'?Math.max(camDist,16):Math.max(camDist,6.5)):camDist;
+  const dist=P.ride?(P.ride.drop?34:26):P.sky?Math.max(camDist,9):P.flying?Math.max(camDist,8):v?(v.kind==='art'?Math.max(camDist,16):Math.max(camDist,6.5)):camDist;
   if(P.ride&&performance.now()-lastLook>1400)camYaw=lerpAngle(camYaw,P.ride.heading+Math.PI,dt*1.5);
-  const ty=(v?(v.kind==='art'?v.deck+2.5:2):1.6)+(v&&v.kind==='art'?0:f.y);
+  const arm=armed();const sh=arm?(W.aiming?.7:.85):0;const shx=Math.cos(camYaw)*sh,shz=-Math.sin(camYaw)*sh;
+  const ty=(v?(v.kind==='art'?v.deck+2.5:2):1.6)+(v&&v.kind==='art'?0:f.y)+(arm?.35:0);
   // pull the camera in when a tent, dome or car is between it and the player
-  let dd=dist;const ux=Math.sin(camYaw)*Math.cos(camPitch),uz=Math.cos(camYaw)*Math.cos(camPitch),uy=Math.sin(camPitch);
+  let dd=arm?(W.aiming?2.8:clamp(dist,5,6.5)):dist;const ux=Math.sin(camYaw)*Math.cos(camPitch),uz=Math.cos(camYaw)*Math.cos(camPitch),uy=Math.sin(camPitch);
   if((!v||v.kind==='bike')&&f.y<4&&!P.ride){for(let t=1.2;t<dist;t+=.5){const x=f.x+ux*t,z=f.z+uz*t,y=ty+uy*t;if(y>3.3)break;let hit=false;for(const o of obstaclesNear(x,z)){if(o.ramp)continue;if(Math.abs(x-o.x)>o.r+.3||Math.abs(z-o.z)>o.r+.3)continue;if((x-o.x)**2+(z-o.z)**2<(o.r+.3)**2){hit=true;break;}}if(hit){dd=Math.max(2.8,t-.6);break;}}}
-  const cx=f.x+ux*dd,cz=f.z+uz*dd,cy=Math.max(.6,ty+uy*dd+(dist-dd)*.35);
-  camera.position.lerp(_v.set(cx,cy,cz),Math.min(1,dt*9));
-  camera.lookAt(f.x,ty,f.z);
-  const spd=v?Math.abs(v.speed):Math.hypot(P.vel.x,P.vel.z);
-  const fov=60+clamp(spd/26,0,1)*12;if(Math.abs(camera.fov-fov)>.05){camera.fov=lerp(camera.fov,fov,dt*3);camera.updateProjectionMatrix();}
+  const cx=f.x+ux*dd+shx,cz=f.z+uz*dd+shz,cy=Math.max(.6,ty+uy*dd+(arm?0:(dist-dd)*.35));
+  camera.position.lerp(_v.set(cx,cy,cz),Math.min(1,dt*(arm?18:9)));
+  camera.lookAt(f.x+shx,ty,f.z+shz);
+  if(W.shake>0){camera.rotation.x+=R(-1,1)*W.shake*.012;camera.rotation.y+=R(-1,1)*W.shake*.012;}
+  const spd=P.sky?P.sky.vel.length()*.5:P.flying?P.fv.length()*.6:v?Math.abs(v.speed):Math.hypot(P.vel.x,P.vel.z);
+  const fov=(W.aiming?60*W.zoom:60)+clamp(spd/26,0,1)*12;if(Math.abs(camera.fov-fov)>.05){camera.fov=lerp(camera.fov,fov,dt*3);camera.updateProjectionMatrix();}
 }
 
 // ================= HUD =================
 const badgeSvg='<svg viewBox="0 0 20 22"><path d="M10 1.5 L18 4.5 V11 C18 16 14 19.5 10 20.5 C6 19.5 2 16 2 11 V4.5 Z"/></svg>';
-$('#badges').innerHTML=[0,1,2].map(()=>`<span>${badgeSvg}</span>`).join('');
+const starSvg='<svg viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.5 1.3 6.6L12 17.2 6.1 20.5l1.3-6.6L2.5 9.4l6.6-.8z"/></svg>';
+$('#badges').innerHTML=[0,1,2,3,4].map(()=>`<span>${starSvg}</span>`).join('');
 function fmtTime(t){const day=DAYS[Math.floor(t/24)%7];let h=Math.floor(t%24);const m=Math.floor((t%1)*60);const ap=h>=12?'PM':'AM';h=h%12||12;return`${day} ${h}:${String(m).padStart(2,'0')} ${ap}`;}
 function updateHUD(){
   $('#clock').textContent=fmtTime(state.time);
@@ -2428,23 +2926,29 @@ function updateHUD(){
   const q=QUESTS[state.quest];
   $('#qstep').textContent=state.quest<5?`Objective ${state.quest+1} of 5`:'Free roam';
   $('#qtitle').textContent=q.title;$('#qtext').textContent=q.text();
-  const stars=Math.floor(state.heat);
+  const stars=Math.floor(state.wanted||0);
   [...$('#badges').children].forEach((el,i)=>el.classList.toggle('on',i<stars));
-  $('#badges').classList.toggle('flash',ranger.active&&stars>0);
+  $('#badges').classList.toggle('flash',stars>0&&RG.seenT>1.5);$('#wantedbox').classList.toggle('hot',stars>0);
+  $('#wantedlabel').textContent=stars===0?(RG.disguise>0?'Rangers · disguised':'Rangers · not looking'):RG.seenT<1.5?'Rangers · they see you!':P.hidden?'Rangers · searching (you’re hidden)':'Rangers · searching';
   $('#pocket').textContent=`Gifts in pocket: ${state.gifts.length} · Given: ${state.given}`;
   $('#vibes').textContent=`Good vibes ${state.karma}`;
   const dt2=dreamText();$('#dream').hidden=!dt2;if(dt2)$('#dtext').textContent=dt2;
   const sd=$('#side');sd.hidden=!state.job;if(state.job){$('#stitle').textContent=JOB_INFO[state.job.id].title;$('#stext').textContent=jobText(state.job);}
   let msg='';
-  if(P.ride)msg=P.ride.pos.y>220?'<kbd>Space</kbd>Jump!':'Climbing to jump altitude…';
-  else if(P.sky)msg=P.sky.canopy?'Steer with A and D. W to dive, S to float':'<kbd>Space</kbd>Open the parachute · <kbd>V</kbd>Spread your wings';
+  if(P.ride&&P.ride.drop){const D=drop.active;const left=D?Math.max(0,Math.ceil((D.len-150-D.t*D.speed)/D.speed)):0;msg=`<kbd>Space</kbd>Jump · the plane leaves the city in ${left}s`;}
+  else if(P.ride)msg=P.ride.pos.y>220?'<kbd>Space</kbd>Jump!':'Climbing to jump altitude…';
+  else if(P.sky)msg=P.sky.canopy?'<kbd>W</kbd>Glide where you look · <kbd>A</kbd><kbd>D</kbd>Turn · <kbd>S</kbd>Float':P.sky.vel.y>0?'Rocketing up…':'<kbd>W</kbd>Dive where you look · <kbd>Space</kbd>Open glider · <kbd>V</kbd>Spread your wings';
   else if(P.flying)msg='<kbd>Space</kbd>Rise · <kbd>C</kbd>Dive · <kbd>Shift</kbd>Blaze · <kbd>V</kbd>Land';
+  else if(P.hidden)msg='Hiding… <kbd>E</kbd>Step out';
   else if(P.vehicle)msg=`<kbd>E</kbd>Hop off ${P.vehicle.kind==='art'?P.vehicle.name:'the bike'}`;
   else{const n=nearest(npcs,P.pos,x=>x.wants);const v=nearest(vehicles,P.pos,x=>!x.driven);
     const gv=Object.values(GIVERS).find(x=>d2(x.pos,P.pos)<3.6);const J=state.job;
     const lamp=J&&J.id==='lamp'&&lamps.find(l=>!l.lit&&d2(l.pos,P.pos)<3.2);
     const dp=daliPrompt();
-    if(airport.plane&&!airport.busy&&d2(airport.plane.g.position,P.pos)<9)msg='<kbd>E</kbd>Board the jump plane';
+    const hd=nearHide(),rk=nearRack();
+    if(hd)msg='<kbd>E</kbd>Hide in the porta-potty';
+    else if(rk)msg='<kbd>E</kbd>Grab a new costume from the free closet';
+    else if(airport.plane&&!airport.busy&&d2(airport.plane.g.position,P.pos)<9)msg='<kbd>E</kbd>Board the jump plane';
     else if(lamp)msg='<kbd>E</kbd>Light the lantern';
     else if(dp)msg=dp;
     else if(nearPiece()){const mp=nearPiece();msg=`<kbd>E</kbd>Admire "${mp.def.title}" · ${ARTIST_NAME[mp.def.artist]||''}`;}
@@ -2481,9 +2985,18 @@ function drawMinimap(){
   dot(TEMPLE,4,state.templeBurnt?'#ff6b35':'#e8c890');
   if(airport.park){mctx.strokeStyle='#46f1ff';mctx.lineWidth=2/k;const ap=airport.park;mctx.beginPath();mctx.moveTo(ap.x-6/k,ap.z);mctx.lineTo(ap.x+6/k,ap.z);mctx.moveTo(ap.x,ap.z-6/k);mctx.lineTo(ap.x,ap.z+6/k);mctx.stroke();}
   if(ambientSky.active)dot(ambientSky.plane.g.position,3,'#ffffff');
+  if(drop.active){const D=drop.active;mctx.strokeStyle='rgba(255,255,255,.75)';mctx.setLineDash([10/k,8/k]);mctx.lineWidth=2.5/k;mctx.beginPath();mctx.moveTo(D.start.x,D.start.z);mctx.lineTo(D.start.x+D.dir.x*D.len,D.start.z+D.dir.z*D.len);mctx.stroke();mctx.setLineDash([]);dot(D.pos,5,'#ffd23f');}
+  for(const pd of pads){mctx.strokeStyle='#46f1ff';mctx.lineWidth=2/k;mctx.beginPath();mctx.arc(pd.pos.x,pd.pos.z,(big?4:3.5)/k,0,TAU);mctx.stroke();}
   for(const c of soundCamps)dot(c.pos,3.5,c.on?'#9b6bff':'#5a4a6a');
   dot(CAMP,4.5,'#ff4fa8');mctx.strokeStyle='#fff';mctx.lineWidth=1.5/k;mctx.beginPath();mctx.arc(CAMP.x,CAMP.z,4.5/k,0,TAU);mctx.stroke();
   if(ranger.active&&Math.sin(performance.now()*.012)>0)dot(ranger.pos,4,'#c9b57c');
+  for(const r of RG.list){if(d2(r.pos,f)>viewR*1.1)continue;const col=r.st==='chase'?'#ff3b2e':r.st==='search'||r.st==='notice'?'#ffd23f':'#d9c690';
+    if(!big){mctx.fillStyle=col+'33';mctx.beginPath();mctx.moveTo(r.pos.x,r.pos.z);const vd=viewDist();mctx.arc(r.pos.x,r.pos.z,vd,Math.PI/2-r.heading-1,Math.PI/2-r.heading+1);mctx.closePath();mctx.fill();}
+    dot(r.pos,big?3:2.6,col);}
+  for(const dr of RG.drones)dot(dr.pos,3,'#ff6b35');
+  if(wantedStars()>0&&RG.seenT>1.5){mctx.strokeStyle='rgba(255,210,63,.8)';mctx.setLineDash([5/k,4/k]);mctx.lineWidth=2/k;mctx.beginPath();mctx.arc(RG.lastSeen.x,RG.lastSeen.z,18,0,TAU);mctx.stroke();mctx.setLineDash([]);}
+  for(const h of RG.hides)if(d2(h.pos,f)<viewR){mctx.fillStyle='#2c6fd1';const hs=(big?3:2.6)/k;mctx.fillRect(h.pos.x-hs/2,h.pos.z-hs/2,hs,hs);}
+  for(const k2 of RG.racks){mctx.fillStyle='#ff8fcf';const hs=(big?4:3.2)/k;mctx.fillRect(k2.pos.x-hs/2,k2.pos.z-hs/2,hs,hs);}
   for(const k in GIVERS){const gv=GIVERS[k];if(!giverOpen(gv))continue;mctx.fillStyle='#ffb35a';const gs=5/k;mctx.fillRect(gv.pos.x-gs/2,gv.pos.z-gs/2,gs,gs);}
   const J=state.job;if(J&&J.search){mctx.setLineDash([6/k,5/k]);mctx.strokeStyle='#ffb35a';mctx.lineWidth=2/k;mctx.beginPath();mctx.arc(J.search.x,J.search.z,J.radius,0,TAU);mctx.stroke();mctx.setLineDash([]);}
   if(state.dream.stage===1)for(const c of dali.clocks)if(!c.got)dot(c.pos,big?3.4:3,'#b07cff');
@@ -2511,7 +3024,10 @@ function startGame(useSave){
   $('#start').hidden=true;['#tl','#tr','#mm'].forEach(s=>$(s).hidden=false);if(isTouch)setupTouch();
   sizeMinimap();
   state.paused=false;
-  if(!state.started){state.started=true;camera.position.set(P.pos.x+20,12,P.pos.z+30);toast(resumed?`Welcome back, Phoenix. It’s ${fmtTime(state.time)}.`:'Welcome home, Phoenix. The sun is setting and the night is just getting started. Find your camp. Press V any time to fly.');saveGame();}
+  if(!state.started){state.started=true;camera.position.set(P.pos.x+20,12,P.pos.z+30);
+    if(resumed){toast(`Welcome back, Phoenix. It’s ${fmtTime(state.time)}.`);if(WP&&!state.weapons.length)state.weapons.push(WP.START_WEAPON);if(state.weapon&&WP)equip(state.weapon,true);renderHotbar();}
+    else startDrop(true);
+    saveGame();}
   canvas.focus();
 }
 $('#go').addEventListener('click',()=>startGame(true));
@@ -2542,13 +3058,13 @@ function frame(now){
 async function boot(data){
   const bar=$('#load i');
   try{
-    await Promise.all([loadAssets(p=>{bar.style.width=Math.round(p*90)+'%';}),loadDali(),loadMasters()]);
+    await Promise.all([loadAssets(p=>{bar.style.width=Math.round(p*90)+'%';}),loadDali(),loadMasters(),loadProps(),loadWeapons()]);
     buildWorld();fxWrapScene(scene);bar.style.width='100%';
     restore(data||{});
     applySettings();pendingSave=loadSave();
     ready=true;const go=$('#go');go.disabled=false;go.textContent=pendingSave?'Continue the week':'Enter the playa';$('#go2').hidden=!pendingSave;
     $('#load').hidden=true;
-    window.__game={CAMP,CENTER,MAN,TEMPLE,exitVehicle,scene,get night(){return night;},LZ,FL,skyFlares,MB,TB,masters,admire,nearPiece,cX,cZ,crowdBurnGather,airport,ambientSky,toggleFly,boardPlane,jumpOut,dali,step(n,dt){for(let i=0;i<n;i++){update(dt||1/60);updateCamera(dt||1/60,false);}},keys,obstaclesNear,settings,applySettings,get crowdVerts(){return crowdMeshes.map(m=>m.geometry.attributes.position.count+'x'+m.count).join(' ');},parkPos,ramps,vehicles,groundHeight,state,P,startGame,startJob,enterVehicle,addKarma,poof,artCars,lamps,GIVERS,openPhone,openPause,renderer,camera,get player(){return player;},cam(y,p,d){camYaw=y;camPitch=p;camDist=d;lastLook=performance.now()+1e6;}};
+    window.__game={aimPoint,weaponTargets,startDrop,clearAir,drop,RG,W,mouse,giveWeapon,equip,holster,setWanted,enterHide,leaveHide,armed,pads,get WP(){return WP;},get PR(){return PR;},CAMP,CENTER,MAN,TEMPLE,exitVehicle,scene,get night(){return night;},LZ,FL,skyFlares,MB,TB,masters,admire,nearPiece,cX,cZ,crowdBurnGather,airport,ambientSky,toggleFly,boardPlane,jumpOut,dali,step(n,dt){for(let i=0;i<n;i++){update(dt||1/60);updateCamera(dt||1/60,false);}},keys,obstaclesNear,settings,applySettings,get crowdVerts(){return crowdMeshes.map(m=>m.geometry.attributes.position.count+'x'+m.count).join(' ');},parkPos,ramps,vehicles,groundHeight,state,P,startGame,startJob,enterVehicle,addKarma,poof,artCars,lamps,GIVERS,openPhone,openPause,renderer,camera,get player(){return player;},cam(y,p,d){camYaw=y;camPitch=p;camDist=d;lastLook=performance.now()+1e6;}};
   }catch(err){
     console.error(err);$('#go').textContent='Could not load the 3D models. Reload to try again.';
   }

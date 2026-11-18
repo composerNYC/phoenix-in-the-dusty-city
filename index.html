@@ -36,10 +36,39 @@ html,body{height:100%;margin:0;background:var(--ink);color:var(--dust);overflow:
 .quest p{margin:0;font-size:13px;line-height:1.45}
 .label{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dust-dim);text-shadow:0 1px 2px rgba(0,0,0,.8)}
 #tr{top:calc(14px + env(safe-area-inset-top,0px));right:16px;display:grid;gap:10px;justify-items:end;text-align:right}
-.badges{display:flex;gap:5px}
-.badges svg{width:20px;height:22px}
-.badges path{fill:none;stroke:var(--khaki);stroke-width:1.6;opacity:.55}
-.badges .on path{fill:var(--khaki);opacity:1}
+.badges{display:flex;gap:4px}
+.badges svg{width:26px;height:26px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))}
+.badges path{fill:rgba(20,15,11,.35);stroke:var(--dust-dim);stroke-width:1.4;opacity:.6;stroke-linejoin:round}
+.badges .on path{fill:#ffd23f;stroke:#fff6cf;opacity:1}
+#wantedbox{transition:transform .2s}
+#wantedbox.hot{transform:scale(1.08)}
+#wantedbox.hot .label{color:#ffd23f}
+/* crosshair: 4 ticks that spread with movement + heat ring */
+#crosshair{left:50%;top:50%;width:0;height:0;--sp:10px;--heat:0;--wc:#fff}
+#crosshair i{position:absolute;background:#fff;box-shadow:0 0 2px rgba(0,0,0,.9);transition:transform .06s}
+#crosshair i:nth-child(1),#crosshair i:nth-child(2){width:2px;height:9px;left:-1px}
+#crosshair i:nth-child(3),#crosshair i:nth-child(4){height:2px;width:9px;top:-1px}
+#crosshair i:nth-child(1){top:calc(-9px - var(--sp))}#crosshair i:nth-child(2){top:var(--sp)}
+#crosshair i:nth-child(3){left:calc(-9px - var(--sp))}#crosshair i:nth-child(4){left:var(--sp)}
+#crosshair b{position:absolute;left:-2px;top:-2px;width:4px;height:4px;border-radius:50%;background:var(--wc);box-shadow:0 0 4px var(--wc)}
+#crosshair svg{position:absolute;left:-30px;top:-30px;width:60px;height:60px;transform:rotate(-90deg)}
+#crosshair circle{fill:none;stroke:var(--wc);stroke-width:3;stroke-dasharray:calc(var(--heat) * 150.8) 200;opacity:.85}
+#crosshair.over circle{stroke:#ff3b2e;animation:flash .3s steps(2) infinite}
+#crosshair.hit i{background:#ff3b2e;transform:scale(1.4)}
+#hotbar{left:50%;bottom:calc(74px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;gap:4px}
+#hotbar .slot{width:58px;height:46px;background:var(--panel);border:2px solid rgba(234,220,192,.18);border-radius:6px;display:grid;place-items:center;position:relative;padding:3px;box-sizing:border-box}
+#hotbar .slot b{position:absolute;left:4px;top:2px;font-family:var(--mono);font-size:9px;color:var(--dust-dim)}
+#hotbar .slot span{font-size:9px;line-height:1.1;text-align:center;color:var(--dust);margin-top:6px}
+#hotbar .slot.empty span{color:var(--dust-dim);opacity:.5;font-size:16px}
+#hotbar .slot.on{border-color:var(--wc);box-shadow:0 0 12px var(--wc),inset 0 0 10px color-mix(in srgb,var(--wc) 40%,transparent);transform:translateY(-4px)}
+#titlecard{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;z-index:3;text-align:center}
+#titlecard h1{font-family:var(--display);font-weight:400;font-size:clamp(40px,8vw,104px);margin:0;line-height:.95;color:#fff3dc;text-shadow:0 4px 30px rgba(255,120,40,.6),0 2px 4px rgba(0,0,0,.5);opacity:0;transform:scale(1.15);letter-spacing:.01em}
+#titlecard h1 small{display:block;font-family:var(--mono);font-size:clamp(11px,1.6vw,16px);letter-spacing:.4em;color:var(--amber);margin:12px 0}
+#titlecard.in h1{animation:tcin 1.6s cubic-bezier(.2,.7,.2,1) forwards}
+#titlecard.out h1{animation:tcout 1.6s ease-in forwards}
+@keyframes tcin{to{opacity:1;transform:scale(1)}}
+@keyframes tcout{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.96) translateY(-20px)}}
+@media (max-width:560px){#hotbar .slot{width:30px;height:30px}#hotbar .slot span{display:none}}
 .badges.flash .on path{animation:flash .5s steps(2) infinite}
 @keyframes flash{50%{fill:var(--warn);stroke:var(--warn)}}
 .meter{width:150px;height:7px;background:rgba(234,220,192,.18);overflow:hidden}
@@ -172,8 +201,8 @@ body.touch #tl .quest p{font-size:12px}
 
 <div class="hud" id="tr" hidden>
   <div>
-    <div class="label">Ranger attention</div>
-    <div class="badges" id="badges"></div>
+    <div id="wantedbox"><div class="label" id="wantedlabel">Rangers · not looking</div>
+    <div class="badges" id="badges"></div></div>
   </div>
   <div class="pocket" id="pocket">Gifts in pocket: 0</div>
   <div class="vibes" id="vibes">Good vibes 0</div>
@@ -186,23 +215,29 @@ body.touch #tl .quest p{font-size:12px}
   <div class="limit" id="limit">SPEED<br>LIMIT<b>5</b></div>
 </div>
 <div class="hud" id="toasts"></div>
+<div class="hud" id="crosshair" hidden><svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="24"/></svg><i></i><i></i><i></i><i></i><b></b></div>
+<div class="hud" id="hotbar" hidden></div>
+<div id="titlecard" hidden><h1>Phoenix<small>in the</small>Dusty City</h1></div>
 <div class="hud" id="stunt"><b id="stuntBig"></b><span id="stuntSmall"></span></div>
 <div class="hud" id="radio"><span id="rgenre"></span><b id="rname"></b></div>
 
 <div class="overlay" id="start">
   <div class="card">
     <h1 class="title">Phoenix <small>in the</small> Dusty <span>City</span></h1>
-    <p class="lede">You are Phoenix, rolling into a city that exists for one week a year. Find your camp, gift freely, hitch a ride on an art car, stay out of trouble with the Rangers, and get to the Man before it burns.</p>
+    <p class="lede">You are Phoenix, dropping out of the sky into a city that exists for one week a year. The Rangers have heard about a fiery bird-person and they are looking for you. Pick your landing spot, grab some very artistic paint guns, hide, dance, gift, and get to the Man before it burns.</p>
     <dl class="controls">
       <dt>W A S D</dt><dd>Walk, or drive when aboard</dd>
       <dt>Mouse</dt><dd>Look around (click the world to lock the cursor)</dd>
       <dt>Shift</dt><dd>Run, pedal hard, or floor the art car</dd>
-      <dt>Space</dt><dd>Jump. On a bike: hop. In the air, A/D spin and W/S flip</dd>
+      <dt>Space</dt><dd>Jump out of the plane, open your glider, hop</dd>
+      <dt>Mouse L · R</dt><dd>Fire, aim. Ammo never runs out</dd>
+      <dt>1–0 · wheel · Q</dt><dd>Switch guns, put them away (Q is the radio on an art car)</dd>
+      <dt>B</dt><dd>Call the drop plane and jump again</dd>
       <dt>G</dt><dd>Dance. Burners nearby join in</dd>
       <dt>V</dt><dd>Fly. Only Phoenix can. Space rises, C dives</dd>
       <dt>C</dt><dd>Sit down in the dust</dd>
-      <dt>E</dt><dd>Climb aboard, hop off, give a gift</dd>
-      <dt>Q · F · H</dt><dd>Art car radio, flame cannons, horn</dd>
+      <dt>E</dt><dd>Climb aboard, hide in a porta-potty, change costume, give a gift</dd>
+      <dt>F · H</dt><dd>Flame cannons, horn</dd>
       <dt>Tab</dt><dd>Phone: side jobs, outfits, stats</dd>
       <dt>M · P</dt><dd>City map, pause and settings</dd>
       <dt>X</dt><dd>Melt time, once the Dream teaches you how</dd>
