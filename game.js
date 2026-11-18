@@ -7,6 +7,8 @@ import { RenderPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/
 import { UnrealBloomPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/UnrealBloomPass.js/+esm';
 import { OutputPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/OutputPass.js/+esm';
 import { ShaderPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/ShaderPass.js/+esm';
+import { installFX, FX, fxUniforms, fxWrapScene, SKY_FRAG, GRADE_FRAG } from './fx.js';
+installFX();
 
 const $ = s => document.querySelector(s);
 
@@ -67,13 +69,9 @@ const bloom=new UnrealBloomPass(new THREE.Vector2(1,1),.4,.55,1.1);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 const grade=new ShaderPass({
-  uniforms:{tDiffuse:{value:null},uTime:{value:0},uVig:{value:1.1},uWarm:{value:.6},uSat:{value:1.12},uDream:{value:0}},
+  uniforms:{tDiffuse:{value:null},uTime:{value:0},uVig:{value:1.0},uWarm:{value:.6},uSat:{value:1.16},uDream:{value:0},uContrast:{value:.18},uCA:{value:.012},uHurt:{value:0},uAlert:{value:0},uShadowTint:{value:new THREE.Color(.94,.98,1.06)},uHighTint:{value:new THREE.Color(1.05,1.0,.94)}},
   vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
-  fragmentShader:`uniform sampler2D tDiffuse;uniform float uTime,uVig,uWarm,uSat,uDream;varying vec2 vUv;
-  void main(){vec2 uv=vUv+uDream*vec2(sin(vUv.y*14.+uTime*2.)*.006,sin(vUv.x*11.+uTime*1.7)*.008*(1.-vUv.y));vec3 c=texture2D(tDiffuse,uv).rgb;float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,uSat);
-  c=(c-.5)*1.05+.5;c*=mix(vec3(1.),vec3(1.06,1.,.9),uWarm);c=mix(c,vec3(dot(c,vec3(.35,.5,.15)))*vec3(1.25,1.,.62),uDream*.45);vec2 d=vUv-.5;c*=1.-dot(d,d)*(uVig+uDream*1.4);
-  float n=fract(sin(dot(vUv*vec2(1271.,311.)+uTime,vec2(12.9898,78.233)))*43758.5453);c+=(n-.5)*.02;
-  gl_FragColor=vec4(clamp(c,0.,1.),1.);}`
+  fragmentShader:GRADE_FRAG
 });
 composer.addPass(grade);
 function resize(){const w=window.innerWidth,h=window.innerHeight;renderer.setSize(w,h,false);composer.setSize(w,h);bloom.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}
@@ -81,22 +79,10 @@ window.addEventListener('resize',resize);resize();
 
 // ================= sky, light, environment =================
 // art-directed gradient sky: deep desert blue overhead, hazy horizon, sun and moon discs
-const SKY={top:{value:new THREE.Color()},horizon:{value:new THREE.Color()},below:{value:new THREE.Color()},sunDir:{value:new THREE.Vector3(0,1,0)},sunCol:{value:new THREE.Color()},sunVis:{value:1},moonDir:{value:new THREE.Vector3(0,1,0)},moonVis:{value:0}};
+const SKY={uDusk:{value:0},uNight:{value:0},uDust:{value:0},uTime:{value:0},top:{value:new THREE.Color()},horizon:{value:new THREE.Color()},below:{value:new THREE.Color()},sunDir:{value:new THREE.Vector3(0,1,0)},sunCol:{value:new THREE.Color()},sunVis:{value:1},moonDir:{value:new THREE.Vector3(0,1,0)},moonVis:{value:0}};
 const skyMat=new THREE.ShaderMaterial({uniforms:SKY,side:THREE.BackSide,depthWrite:false,fog:false,
   vertexShader:'varying vec3 vDir;void main(){vDir=normalize(position);vec4 p=projectionMatrix*modelViewMatrix*vec4(position,1.);gl_Position=p.xyww;}',
-  fragmentShader:`uniform vec3 top,horizon,below,sunCol;uniform vec3 sunDir,moonDir;uniform float sunVis,moonVis;varying vec3 vDir;
-  void main(){vec3 d=normalize(vDir);float h=d.y;
-    vec3 c=mix(horizon,top,pow(clamp(h,0.,1.),.32));
-    c=mix(c,below,smoothstep(0.,-.06,h));
-    float sd=max(dot(d,normalize(sunDir)),0.);
-    c+=sunCol*(pow(sd,6.)*.28+pow(sd,90.)*.9)*sunVis;
-    c+=sunCol*smoothstep(.99955,.9997,sd)*30.*sunVis*step(-.02,h);
-    float md=max(dot(d,normalize(moonDir)),0.);
-    c+=vec3(.75,.8,1.)*(smoothstep(.99965,.99978,md)*4.+pow(md,200.)*.25)*moonVis;
-    gl_FragColor=vec4(c,1.);
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-  }`});
+  fragmentShader:SKY_FRAG});
 const sky=new THREE.Mesh(new THREE.SphereGeometry(4500,32,16),skyMat);sky.renderOrder=-1;sky.frustumCulled=false;scene.add(sky);
 const envScene=new THREE.Scene();const envSky=new THREE.Mesh(sky.geometry,skyMat);envScene.add(envSky);
 const pmrem=new THREE.PMREMGenerator(renderer);let envRT=null,envTimer=0;
@@ -375,7 +361,7 @@ const ARTS=[artRing,artTotem,artMirror,artLotus,artSpire,artArch,artCubes,artGym
 function drawLayout(ctx,S,mode){
   const k=S/1600,cx=S/2,cy=S/2;const P=v=>[cx+v.x*k,cy+v.z*k];
   if(mode==='ground'){
-    ctx.fillStyle='#c2ab88';ctx.fillRect(0,0,S,S);
+    ctx.fillStyle='#cdb895';ctx.fillRect(0,0,S,S);
     for(let i=0;i<900;i++){const x=rnd()*S,y=rnd()*S,r=R(20,120);const gr=ctx.createRadialGradient(x,y,0,x,y,r);const l=rnd()<.5;gr.addColorStop(0,l?'rgba(240,232,214,.10)':'rgba(140,118,88,.08)');gr.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=gr;ctx.fillRect(x-r,y-r,r*2,r*2);}
     for(let i=0;i<60000;i++){ctx.fillStyle=rnd()<.5?'rgba(255,248,230,.07)':'rgba(90,70,40,.05)';ctx.fillRect(rnd()*S,rnd()*S,1+rnd()*2,1+rnd()*2);}
   }else{ctx.fillStyle='#2a211a';ctx.fillRect(0,0,S,S);}
@@ -412,8 +398,8 @@ function crackTextures(N,cells){
       if(cj+dj<0)sy=s[1]-1;else if(cj+dj>=cells)sy=s[1]+1;else sy=s[1];
       const d=Math.hypot(u-sx,v-sy)*cells;if(d<f1){f2=f1;f1=d;}else if(d<f2)f2=d;
     }
-    const e=f2-f1;const crack=Math.min(1,e/.06);
-    h[y*N+x]=crack*crack*(3-2*crack)*.8+(1-f1)*.12+Math.random()*.03;
+    const e=f2-f1;const crack=Math.min(1,e/.022);
+    h[y*N+x]=crack*crack*(3-2*crack)*.55+(1-f1)*.06+Math.random()*.035;
   }
   const nd=new Uint8Array(N*N*4),ad=new Uint8Array(N*N*4);const str=6;
   for(let y=0;y<N;y++)for(let x=0;x<N;x++){
@@ -441,8 +427,24 @@ function buildWorld(){
   // ground
   const gc=document.createElement('canvas');gc.width=gc.height=2048;drawLayout(gc.getContext('2d'),2048,'ground');
   const gt=new THREE.CanvasTexture(gc);gt.colorSpace=THREE.SRGBColorSpace;gt.anisotropy=8;
-  const cr=crackTextures(512,10);cr.normal.repeat.set(480,480);cr.ao.repeat.set(480,480);
-  const groundMat=new THREE.MeshStandardMaterial({map:gt,normalMap:cr.normal,normalScale:new THREE.Vector2(.55,.55),aoMap:cr.ao,aoMapIntensity:.7,roughness:.97,metalness:0});
+  const cr=crackTextures(512,7);cr.normal.repeat.set(380,380);cr.ao.repeat.set(380,380);
+  const groundMat=new THREE.MeshStandardMaterial({map:gt,normalMap:cr.normal,normalScale:new THREE.Vector2(.34,.34),aoMap:cr.ao,aoMapIntensity:.35,roughness:.95,metalness:0});
+  groundMat.onBeforeCompile=sh=>{
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec2 vGW;').replace('#include <begin_vertex>','#include <begin_vertex>\nvGW=(modelMatrix*vec4(transformed,1.)).xz;');
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>',`#include <common>
+varying vec2 vGW;
+float gh(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float gn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(gh(i),gh(i+vec2(1,0)),f.x),mix(gh(i+vec2(0,1)),gh(i+vec2(1,1)),f.x),f.y);}
+float gfbm(vec2 p){return gn(p)*.5+gn(p*2.1)*.3+gn(p*4.3)*.2;}`)
+    .replace('#include <map_fragment>',`#include <map_fragment>
+  float gDist=length(vViewPosition);
+  float macro=gfbm(vGW*.012);float meso=gfbm(vGW*.09+7.);float micro=gn(vGW*1.7);
+  diffuseColor.rgb*=.86+macro*.22+meso*.08;
+  diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*vec3(1.05,1.0,.93),smoothstep(.45,.75,meso));
+  diffuseColor.rgb*=1.-(1.-smoothstep(.0,.25,micro))*.05*(1.-smoothstep(10.,60.,gDist));`)
+    .replace('#include <normal_fragment_maps>',THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;','mapN.xy *= normalScale*mix(1.,.12,smoothstep(12.,140.,gDist))*(.75+meso*.5);'))
+    .replace('#include <aomap_fragment>',THREE.ShaderChunk.aomap_fragment.replace('float ambientOcclusion = ( texture2D( aoMap, vAoMapUv ).r - 1.0 ) * aoMapIntensity + 1.0;','float ambientOcclusion = ( texture2D( aoMap, vAoMapUv ).r - 1.0 ) * aoMapIntensity*mix(1.,.2,smoothstep(12.,140.,gDist)) + 1.0;'));
+  };
   const gg=new THREE.PlaneGeometry(1600,1600);
   const ground=new THREE.Mesh(gg,groundMat);ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
   const farMat=new THREE.MeshStandardMaterial({color:0xc1ae8e,roughness:1});
@@ -1585,6 +1587,7 @@ const CROWD_VS_BODY=`
   }
   vec3 transformed=p;`;
 function patchCrowdShader(shader,isDepth){
+  fxUniforms(shader);
   shader.uniforms.uTime=crowdUni.uTime;shader.uniforms.uGlow=crowdUni.uGlow;
   shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\n'+CROWD_VS_DECL+(isDepth?'':'varying vec3 vCC;varying float vGA;varying vec2 vMUv;varying float vMI;varying float vIsM;varying vec3 vObj;varying float vPat;varying float vBody;varying vec3 vAcc;'))
     .replace('#include <begin_vertex>',CROWD_VS_BODY+(isDepth?'':`
@@ -2157,13 +2160,13 @@ function updateMelt(rdt){
   grade.uniforms.uDream.value=lerp(grade.uniforms.uDream.value,melt.active>0?1:0,Math.min(1,rdt*3));
 }
 // ================= environment =================
-const C={topDay:new THREE.Color(0x1d58b8),topDusk:new THREE.Color(0x3b4a8c),topNight:new THREE.Color(0x020309),hazeDay:new THREE.Color(0xb3c9da),hazeDusk:new THREE.Color(0xf09358),hazeNight:new THREE.Color(0x0a0c18),dust:new THREE.Color(0xcab08a),dustNight:new THREE.Color(0x261f19),hemiDay:new THREE.Color(0xdfefff),hemiNight:new THREE.Color(0x34406e),mountDay:new THREE.Color(0x7d8399),mountNight:new THREE.Color(0x0c0e1a),sunWarm:new THREE.Color(0xffb27a),sunNoon:new THREE.Color(0xfff3e0),moon:new THREE.Color(0x9fb4ff)};
+const C={topDay:new THREE.Color(0x1552c4),topDusk:new THREE.Color(0x2c3a86),topNight:new THREE.Color(0x03040d),hazeDay:new THREE.Color(0xbcd5ea),hazeDusk:new THREE.Color(0xf2945a),hazeNight:new THREE.Color(0x0b0d1c),rimDay:new THREE.Color(.42,.45,.52),rimDusk:new THREE.Color(.9,.5,.28),rimNight:new THREE.Color(.22,.16,.42),sunFogDay:new THREE.Color(.55,.48,.36),sunFogDusk:new THREE.Color(1.3,.62,.25),dust:new THREE.Color(0xcab08a),dustNight:new THREE.Color(0x261f19),hemiDay:new THREE.Color(0xdfefff),hemiNight:new THREE.Color(0x34406e),hemiDusk:new THREE.Color(0xffb48a),mountDay:new THREE.Color(0x7d8399),mountNight:new THREE.Color(0x0c0e1a),sunWarm:new THREE.Color(0xffb27a),sunNoon:new THREE.Color(0xfff3e0),moon:new THREE.Color(0x9fb4ff)};
 const tmpC=new THREE.Color(),tmpC2=new THREE.Color(),fogC=new THREE.Color();
 const sunDir=new THREE.Vector3();
 let night=0,lastEnvElev=99;
 function envUpdate(dt){
   const h=state.time%24;const ang=(h-6)/12*Math.PI;const elev=Math.sin(ang);
-  const day=clamp(elev*2.4+.2,0,1);night=1-day;
+  const day=clamp(elev*3+.35,0,1);night=1-day;
   const dusk=clamp(1-Math.abs(elev+.02)*4.5,0,1);
   if(state.started){
     if(state.time>=state.nextStorm&&state.dustTarget===0){state.dustTarget=1;state.stormEnd=state.time+R(.5,.9);if(!state.job&&state.quest>=1)setTimeout(()=>{if(!state.job&&state.dust>.3)startJob('rescue');},9000);toast(state.goggles?'Dust storm rolling in. Goggles on.':'Whiteout! A dust storm is rolling in. You need goggles.');}
@@ -2179,22 +2182,26 @@ function envUpdate(dt){
   tmpC2.copy(C.dustNight).lerp(C.dust,day);
   fogC.copy(tmpC).lerp(tmpC2,dust);
   SKY.horizon.value.copy(fogC);SKY.below.value.copy(fogC);SKY.top.value.lerp(tmpC2,dust*.95);
+  SKY.uDusk.value=dusk*(1-dust);SKY.uNight.value=night;SKY.uDust.value=dust;SKY.uTime.value=(performance.now()*.001)%1000;
+  if(elev>-.05)FX.fxSunDir.value.copy(sunDir);else FX.fxSunDir.value.set(-sunDir.x*.6,.75,-.35).normalize();
+  FX.fxSunFog.value.copy(C.sunFogDay).multiplyScalar(day).lerp(C.sunFogDusk,dusk).multiplyScalar(1-dust*.6);
+  FX.fxRim.value.copy(C.rimNight).lerp(C.rimDay,day).lerp(C.rimDusk,dusk*.8).multiplyScalar(1-dust*.5);
+  FX.fxFalloff.value=lerp(.011,.0025,dust);
   scene.fog.color.copy(fogC);
-  const alt=Math.max(0,camera.position.y-20);
-  scene.fog.far=lerp(lerp(650,1700,day),state.goggles?80:28,dust)+alt*3;scene.fog.near=lerp(lerp(20,220,day),.5,dust)+alt*1.2;updateClouds(day,dusk,dust);
+  scene.fog.far=lerp(lerp(700,2300,day),state.goggles?80:28,dust);scene.fog.near=lerp(lerp(20,160,day),.5,dust);updateClouds(day,dusk,dust);
   dustDome.material.color.copy(tmpC2);dustDome.material.opacity=Math.min(1,dust*1.15);
   const f=focusPos()||spawnPt;
   // sun by day, moon by night: one shadow-casting light
   if(elev>-.05){sun.position.set(f.x+sunDir.x*300,f.y+Math.max(.06,sunDir.y)*300,f.z+sunDir.z*300);sun.color.copy(C.sunWarm).lerp(C.sunNoon,clamp(elev*2.5,0,1));sun.intensity=clamp(elev*7,0,1)*2.7*(1-dust*.75);}
   else{const md=new THREE.Vector3(-sunDir.x*.6,.75,-.35).normalize();sun.position.set(f.x+md.x*300,f.y+md.y*300,f.z+md.z*300);sun.color.copy(C.moon);sun.intensity=.45*(1-dust*.7);}
   sun.target.position.copy(f);
-  hemi.intensity=.18+day*.45;hemi.color.copy(C.hemiNight).lerp(C.hemiDay,day);
+  hemi.intensity=.2+day*.5+dusk*.3;hemi.color.copy(C.hemiNight).lerp(C.hemiDay,day).lerp(C.hemiDusk,dusk*.6);
   hemi.groundColor.setRGB(lerp(.06,.6,day),lerp(.05,.5,day),lerp(.06,.38,day));
   scene.environmentIntensity=lerp(.12,.75,day)*(1-dust*.4);
   envTimer-=dt;if(envTimer<=0||Math.abs(elev-lastEnvElev)>.08){envTimer=3;lastEnvElev=elev;refreshEnv();}
   const ni=lerp(.7,2.3,night);for(const m of neonMats)m.emissiveIntensity=ni*m.userData.k;
   if(bulbs){bulbs.material.opacity=.15+night*.85;bulbs.material.color.setScalar(1+night*2.2);}
-  if(stars)stars.material.opacity=Math.max(0,night-.15)*(1-dust);
+  if(stars)stars.material.opacity=clamp(night*1.4-.45,0,1)*(1-dust);
   if(mountMat)mountMat.color.copy(C.mountNight).lerp(C.mountDay,day).lerp(fogC,clamp(.25+dust*1.3,0,1));
   if(beacon)beacon.material.opacity=(.14+night*.3)*(1-dust*.5);
   if(dustPts)dustPts.material.opacity=dust*.85;
@@ -2536,7 +2543,7 @@ async function boot(data){
   const bar=$('#load i');
   try{
     await Promise.all([loadAssets(p=>{bar.style.width=Math.round(p*90)+'%';}),loadDali(),loadMasters()]);
-    buildWorld();bar.style.width='100%';
+    buildWorld();fxWrapScene(scene);bar.style.width='100%';
     restore(data||{});
     applySettings();pendingSave=loadSave();
     ready=true;const go=$('#go');go.disabled=false;go.textContent=pendingSave?'Continue the week':'Enter the playa';$('#go2').hidden=!pendingSave;
