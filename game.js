@@ -664,7 +664,6 @@ function buildPickups(){
     shadowAll(g);scene.add(g);const pk={kind,g,active:true,respawn:0};respot(pk);pickups.push(pk);
   };
   for(let i=0;i<34;i++)add('gift');
-  for(let i=0;i<16;i++)add('water');
   pickups[0].g.position.copy(clockPos(6.45,460)).setY(1.1);pickups[1].g.position.copy(clockPos(6.2,448)).setY(1.1);
 }
 function respot(pk){let p;const r=rnd();if(r<.55)p=clockPos(R(2,10),pick(STREETS)[1]+R(-3,3));else if(r<.7)p=clockPos(R(5.8,7.2),R(440,470));else p=clockPos(R(0,12),R(40,240));collide(p,.8);p.y=1.1;pk.g.position.copy(p);pk.g.visible=true;pk.active=true;}
@@ -811,7 +810,7 @@ const MB=23,TB=46; // Man burns Sat 11 PM, Temple burns Sun 10 PM
 // mostly night: daylight hours fly by, night hours linger
 function hourLen(h){return h>6.8&&h<18.2?12:55;}
 const DAYS=['SAT','SUN','MON','TUE','WED','THU','FRI'];
-const state={gallery:{admired:{},done:false},unlocks:{},dream:{stage:0,got:0},meltPower:false,sunriseDay:-1,karma:0,outfit:'phoenix',stats:{walked:0,driven:0,poofs:0,fares:0,jobs:0,rangers:0},jobsDone:{},lampDay:-1,job:null,waypoint:null,time:18.4,dust:0,dustTarget:0,nextStorm:20.6,stormEnd:0,goggles:false,hydration:100,gifts:[],given:0,heat:0,quest:0,sawMan:false,sawTemple:false,manBurnt:false,templeBurnt:false,paused:true,started:false,mapOpen:false,lastWater:0};
+const state={gallery:{admired:{},done:false},unlocks:{},dream:{stage:0,got:0},meltPower:false,sunriseDay:-1,karma:0,outfit:'phoenix',stats:{walked:0,driven:0,poofs:0,fares:0,jobs:0,rangers:0},jobsDone:{},lampDay:-1,job:null,waypoint:null,time:18.4,dust:0,dustTarget:0,nextStorm:20.6,stormEnd:0,goggles:false,gifts:[],given:0,heat:0,quest:0,sawMan:false,sawTemple:false,manBurnt:false,templeBurnt:false,paused:true,started:false,mapOpen:false};
 
 function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;const box=$('#toasts');box.appendChild(el);while(box.children.length>3)box.removeChild(box.firstChild);setTimeout(()=>el.remove(),4200);}
 let modalCb=null;
@@ -864,7 +863,7 @@ function toggleMap(){state.mapOpen=!state.mapOpen;$('#mm').classList.toggle('big
 function timeUntil(t){const h=t-state.time;if(h<=0)return'now';const hh=Math.floor(h),mm=Math.floor((h-hh)*60);return(hh?hh+'h ':'')+mm+'m';}
 const QUESTS=[
   {title:'Find your camp',text:()=>'Welcome home, Phoenix. Camp Lost Unicorn is at 7:15 & Dune, look for the rainbow. Follow the cyan beacon.',target:()=>CAMP,done:()=>d2(focusPos(),CAMP)<16,
-    reward(){addKarma(15);state.goggles=true;state.hydration=100;toast('"Phoenix! You made it!" Your campmates hand you goggles and a full water bottle.');}},
+    reward(){addKarma(15);state.goggles=true;toast('"Phoenix! You made it!" Your campmates hand you a pair of dust goggles.');}},
   {title:'Gift economy',text:()=>`Give 3 gifts to burners with a pink gift bubble (${Math.min(state.given,3)}/3). Glowing boxes on the playa are free for the taking.`,
     target:()=>{const f=focusPos();if(state.gifts.length){const n=nearest(npcs,f,x=>x.wants);return n&&n.item.pos;}const g=nearest(pickups,f,x=>x.active&&x.kind==='gift');return g&&g.item.g.position;},
     done:()=>state.given>=3,reward(){addKarma(20);toast('Gifting complete. Someone gives Phoenix a hug and a sticker that says DUST IS LOVE.');}},
@@ -910,12 +909,12 @@ function applySettings(){
 }
 function saveGame(){
   if(!state.started)return;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,time:state.time,quest:state.quest,gifts:state.gifts,given:state.given,hydration:state.hydration,goggles:state.goggles,sawMan:state.sawMan,sawTemple:state.sawTemple,karma:state.karma,outfit:state.outfit,stats:state.stats,jobsDone:state.jobsDone,lampDay:state.lampDay,dream:{stage:state.dream.stage,got:dali.clocks.filter(c=>c.got).map(c=>c.i)},meltPower:state.meltPower,gallery:state.gallery,unlocks:state.unlocks,x:P.pos.x,z:P.pos.z,heading:P.heading}));}catch(_){}
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,time:state.time,quest:state.quest,gifts:state.gifts,given:state.given,goggles:state.goggles,sawMan:state.sawMan,sawTemple:state.sawTemple,karma:state.karma,outfit:state.outfit,stats:state.stats,jobsDone:state.jobsDone,lampDay:state.lampDay,dream:{stage:state.dream.stage,got:dali.clocks.filter(c=>c.got).map(c=>c.i)},meltPower:state.meltPower,gallery:state.gallery,unlocks:state.unlocks,x:P.pos.x,z:P.pos.z,heading:P.heading}));}catch(_){}
 }
 function loadSave(){try{const d=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');return d&&d.v===1?d:null;}catch(_){return null;}}
 function clearSave(){try{localStorage.removeItem(SAVE_KEY);}catch(_){}}
 function applySave(d){
-  Object.assign(state,{time:d.time,quest:d.quest||0,gifts:d.gifts||[],given:d.given||0,hydration:d.hydration??100,goggles:!!d.goggles,sawMan:!!d.sawMan,sawTemple:!!d.sawTemple,karma:d.karma||0,lampDay:d.lampDay??-1});
+  Object.assign(state,{time:d.time,quest:d.quest||0,gifts:d.gifts||[],given:d.given||0,goggles:!!d.goggles,sawMan:!!d.sawMan,sawTemple:!!d.sawTemple,karma:d.karma||0,lampDay:d.lampDay??-1});
   Object.assign(state.stats,d.stats||{});state.meltPower=!!d.meltPower;if(d.gallery)state.gallery=d.gallery;if(d.unlocks)state.unlocks=d.unlocks;if(d.dream){state.dream.stage=d.dream.stage||0;for(const c of dali.clocks)if((d.dream.got||[]).includes(c.i)){c.got=true;if(c.b.clock)c.b.clock.visible=false;}}Object.assign(state.jobsDone,d.jobsDone||{});
   state.manBurnt=state.time>=MB;state.templeBurnt=state.time>=TB;state.nextStorm=state.time+R(1.5,4);
   if(typeof d.x==='number'){P.pos.set(d.x,0,d.z);P.heading=d.heading||0;}
@@ -1196,7 +1195,7 @@ function updateJob(dt){
   if(!J)return;J.t+=dt;const f=focusPos();
   switch(J.id){
     case 'ice':J.timer-=dt;
-      if(d2(f,J.dest)<10){state.hydration=Math.min(100,state.hydration+30);endJob(true,'Ice delivered! The camp cheers and pours Phoenix a cold drink.',25);}
+      if(d2(f,J.dest)<10){endJob(true,'Ice delivered! The camp cheers and pours Phoenix a cold drink.',25);}
       else if(J.timer<=0)endJob(false,'The ice melted into a sad little puddle. The Ice Depot always has more.',0);
       else if(J.timer<20&&Math.floor(J.timer)!==Math.floor(J.timer+dt))sfx.tick();
       break;
@@ -1338,7 +1337,7 @@ function updateDevils(dt){
     d.life-=dt;const grow=Math.min(1,d.life/4,(70-d.life)/4+.2);d.g.scale.setScalar(clamp(grow,.1,1));
     d.dir+=R(-.6,.6)*dt;d.g.position.x+=Math.sin(d.dir)*5*dt;d.g.position.z+=Math.cos(d.dir)*5*dt;
     d.pts.rotation.y+=dt*4;d.g.rotation.z=Math.sin(performance.now()*.0013)*.08;
-    if(d2(d.g.position,f)<6){state.hydration-=dt*2;d.hit+=dt;if(d.hit>.1&&d.hit<.15)toast('Caught in a dust devil! Spit out the playa and keep moving.');}
+    if(d2(d.g.position,f)<6){d.hit+=dt;if(d.hit>.1&&d.hit<.15)toast('Caught in a dust devil! Spit out the playa and keep moving.');}
   }
 }
 const PUFF_N=500;const puffPos=new Float32Array(PUFF_N*3),puffA=new Float32Array(PUFF_N),puffS=new Float32Array(PUFF_N),puffLife=new Float32Array(PUFF_N),puffVel=new Float32Array(PUFF_N*3);let puffCursor=0,puffGeo,puffMat,puffTimer=0;
@@ -1514,7 +1513,7 @@ function landBike(v,gh){
 }
 function crashBike(v){
   v.portal=false;v.crashed=2.4;v.flip=0;v.spin=0;v.pitch=0;v.g.rotation.x=0;v.g.rotation.z=1.45;v.speed*=.35;v.moveDir=v.heading;
-  oneShot(player,'Lie_Idle',2.3);sfx.crash();state.hydration=Math.max(1,state.hydration-3);
+  oneShot(player,'Lie_Idle',2.3);sfx.crash();
   toast(pick(['Wipeout! The playa is soft. Mostly.','Faceplant. A passerby gives it a 7 out of 10.','Crash! Your goggles survived. Your dignity did not.','Bailed! Somebody yells "Do it again!"']));
   for(let i=0;i<14;i++)emitPuff(v.pos.x+R(-1.5,1.5),v.pos.z+R(-1.5,1.5),1.4,.4);
 }
@@ -2261,10 +2260,6 @@ function update(dt,rdt){rdt=rdt||dt;
   if(speeding)state.heat=Math.min(3.99,state.heat+dt*.33);
   else state.heat=Math.max(0,state.heat-dt*(ranger.active&&d2(ranger.pos,focusPos())<70?.03:.09));
   updateRanger(dt);
-  const sprint=!P.vehicle&&boost&&P.vel.lengthSq()>4;
-  state.hydration-=dt*(.22+.32*(1-night))*(sprint?1.6:1)*(P.sitting?.5:1);
-  if(state.quest>0&&d2(focusPos(),CAMP)<14){if(state.hydration<99&&performance.now()-state.lastWater>8000){toast('Phoenix tops up at the camp water tank.');state.lastWater=performance.now();}state.hydration=Math.min(100,state.hydration+dt*25);}
-  if(state.hydration<=0){state.hydration=0;faint();}
   updateArtCars(dt);updateNPCs(dt);updateCyclists(dt);updatePickups(dt);updateBurns(dt);updateFireworks(dt);updateDust(dt);updatePoofs(dt);updateJob(dt);updateLamps();updateSoundCamps(dt);updateDevils(dt);updatePuffs(dt);updateChatter(dt);updateCrowd(dt);crowdEvents();updateDali(dt);updateAmbientSky(dt);updatePlaneAuto(dt);updateTrail(dt);updateMasters(dt);{const tt=performance.now()*.001;updateLaserField(tt);updateFlares(tt);}updateSkyFlares(dt);updateLightPool();
   updateQuest();
   const tgt=QUESTS[state.quest]&&QUESTS[state.quest].target();
@@ -2285,11 +2280,6 @@ function update(dt,rdt){rdt=rdt||dt;
   hudTimer-=dt;if(hudTimer<=0){hudTimer=.1;updateHUD();updateTouchUI();}
 }
 function fenceMsg(){if(performance.now()-lastFenceMsg>6000){lastFenceMsg=performance.now();toast('That is the trash fence. Nothing out there but more dust.');}}
-function faint(){
-  if(P.vehicle)exitVehicle();if(P.ride)return;P.flying=false;if(P.sky){if(P.sky.canopy)scene.remove(P.sky.canopy);P.sky=null;}P.pos.y=0;
-  P.sitting=false;play(player,'Lie_Idle',.4);player.mixer.update(.5);
-  modal('Dehydrated','Phoenix wobbles, sits down in the dust, and wakes up in a medical tent with an electrolyte drink in hand. A volunteer walks Phoenix back toward camp. Drink water before you feel thirsty.','Back to camp',()=>{P.pos.copy(CAMP).add(new THREE.Vector3(4,0,4));state.hydration=75;play(player,'Idle');});
-}
 function updateRanger(dt){
   const stars=Math.floor(state.heat);const f=focusPos();
   if(stars>0&&!ranger.active){
@@ -2374,7 +2364,6 @@ function updatePickups(dt){
       pk.active=false;pk.g.visible=false;pk.respawn=pk.kind==='gift'?45:60;
       if(!P.vehicle)oneShot(player,'PickUp',.7);
       if(pk.kind==='gift'){const item=pick(GIFT_ITEMS);state.gifts.push(item);toast(`Found a gift to give away: ${item}.`);}
-      else{state.hydration=Math.min(100,state.hydration+35);toast('Cold water. Hydration up.');}
       sfx.pick();
     }
   }
@@ -2435,8 +2424,6 @@ function updateHUD(){
   const stars=Math.floor(state.heat);
   [...$('#badges').children].forEach((el,i)=>el.classList.toggle('on',i<stars));
   $('#badges').classList.toggle('flash',ranger.active&&stars>0);
-  const hy=$('#hydro');hy.firstElementChild.style.width=state.hydration+'%';hy.classList.toggle('low',state.hydration<25);
-  $('#vignette').style.opacity=state.hydration<25?String((25-state.hydration)/25*.9):'0';
   $('#pocket').textContent=`Gifts in pocket: ${state.gifts.length} · Given: ${state.given}`;
   $('#vibes').textContent=`Good vibes ${state.karma}`;
   const dt2=dreamText();$('#dream').hidden=!dt2;if(dt2)$('#dtext').textContent=dt2;
@@ -2524,11 +2511,11 @@ $('#go').addEventListener('click',()=>startGame(true));
 $('#go2').addEventListener('click',()=>{clearSave();pendingSave=null;startGame(false);});
 function restore(d){
   if(!d||typeof d.time!=='number')return;
-  Object.assign(state,{time:d.time,quest:d.quest||0,given:d.given||0,gifts:d.gifts||[],hydration:d.hydration??100,goggles:!!d.goggles});
+  Object.assign(state,{time:d.time,quest:d.quest||0,given:d.given||0,gifts:d.gifts||[],goggles:!!d.goggles});
   if(typeof d.x==='number')P.pos.set(d.x,0,d.z);
 }
 const hot=window.claude&&window.claude.hot;
-if(hot&&hot.snapshot){try{hot.snapshot(()=>({time:state.time,quest:state.quest,given:state.given,gifts:state.gifts,hydration:state.hydration,goggles:state.goggles,x:P.pos&&P.pos.x,z:P.pos&&P.pos.z,started:state.started}));}catch(_){}}
+if(hot&&hot.snapshot){try{hot.snapshot(()=>({time:state.time,quest:state.quest,given:state.given,gifts:state.gifts,goggles:state.goggles,x:P.pos&&P.pos.x,z:P.pos&&P.pos.z,started:state.started}));}catch(_){}}
 
 let last=performance.now();
 // adaptive resolution: keep frame time near 60 fps on slower machines
@@ -2554,7 +2541,7 @@ async function boot(data){
     applySettings();pendingSave=loadSave();
     ready=true;const go=$('#go');go.disabled=false;go.textContent=pendingSave?'Continue the week':'Enter the playa';$('#go2').hidden=!pendingSave;
     $('#load').hidden=true;
-    window.__game={LZ,FL,skyFlares,MB,TB,masters,admire,nearPiece,cX,cZ,crowdBurnGather,airport,ambientSky,toggleFly,boardPlane,jumpOut,dali,step(n,dt){for(let i=0;i<n;i++){update(dt||1/60);updateCamera(dt||1/60,false);}},keys,obstaclesNear,settings,applySettings,get crowdVerts(){return crowdMeshes.map(m=>m.geometry.attributes.position.count+'x'+m.count).join(' ');},parkPos,ramps,vehicles,groundHeight,state,P,startGame,startJob,enterVehicle,addKarma,poof,artCars,lamps,GIVERS,openPhone,openPause,renderer,camera,get player(){return player;},cam(y,p,d){camYaw=y;camPitch=p;camDist=d;lastLook=performance.now()+1e6;}};
+    window.__game={CAMP,CENTER,MAN,TEMPLE,exitVehicle,scene,get night(){return night;},LZ,FL,skyFlares,MB,TB,masters,admire,nearPiece,cX,cZ,crowdBurnGather,airport,ambientSky,toggleFly,boardPlane,jumpOut,dali,step(n,dt){for(let i=0;i<n;i++){update(dt||1/60);updateCamera(dt||1/60,false);}},keys,obstaclesNear,settings,applySettings,get crowdVerts(){return crowdMeshes.map(m=>m.geometry.attributes.position.count+'x'+m.count).join(' ');},parkPos,ramps,vehicles,groundHeight,state,P,startGame,startJob,enterVehicle,addKarma,poof,artCars,lamps,GIVERS,openPhone,openPause,renderer,camera,get player(){return player;},cam(y,p,d){camYaw=y;camPitch=p;camDist=d;lastLook=performance.now()+1e6;}};
   }catch(err){
     console.error(err);$('#go').textContent='Could not load the 3D models. Reload to try again.';
   }
