@@ -439,10 +439,10 @@ function gliderPhoenix(g, nm, sprites) {
     const inner = grp(g, s * .22, 2.75, .25), outer = grp(inner, s * 2.0, .02, -.1);
     const ip = [], op = [];
     // inner segment: coverts (red), secondaries (orange)
-    for (let i = 0; i < 9; i++) { const x = s * (.1 + i * .23); ip.push([featherGeo(1.5 + i * .05, .2, 0xffd23f, 0xff6b2b), mtx(x, -.02, -.05, 0, -s * .05, 0)]); }
-    for (let i = 0; i < 8; i++) { const x = s * (.15 + i * .25); ip.push([featherGeo(.8, .18, 0xb3122e, 0xff3d3d), mtx(x, .04, .25, 0, 0, 0)]); }
+    for (let i = 0; i < 9; i++) { const x = s * (.1 + i * .23); ip.push([featherGeo(1.5 + i * .05, .2, 0xff7a1f, 0xffd21f), mtx(x, -.02, -.05, 0, -s * .05, 0)]); }
+    for (let i = 0; i < 8; i++) { const x = s * (.15 + i * .25); ip.push([featherGeo(.8, .18, 0x9a0f3a, 0xff2d4d), mtx(x, .04, .25, 0, 0, 0)]); }
     // outer segment: long primaries fanning back
-    for (let i = 0; i < 9; i++) { const x = s * (.05 + i * .24); op.push([featherGeo(1.8 + i * .14, .2 + i * .006, 0xff8a1f, 0xfff07a), mtx(x, -.02 - i * .006, -.05, 0, -s * i * .085, 0)]); }
+    for (let i = 0; i < 9; i++) { const x = s * (.05 + i * .24); op.push([featherGeo(1.8 + i * .14, .2 + i * .006, 0xff4a1f, 0xffc21f), mtx(x, -.02 - i * .006, -.05, 0, -s * i * .085, 0)]); }
     for (let i = 0; i < 9; i++) { const x = s * (.1 + i * .22); op.push([featherGeo(.75, .17, 0xd81b60, 0xff6b2b), mtx(x, .04, .22, 0, -s * i * .04, 0)]); }
     M(mergeList(ip), fm, 1, 1, 1, 0, 0, 0, inner); M(mergeList(op), fm, 1, 1, 1, 0, 0, 0, outer);
     seg(G.cyl, boneM, V(0, .06, .3), V(s * 2.05, .08, .2), .06, inner);
@@ -452,16 +452,17 @@ function gliderPhoenix(g, nm, sprites) {
   }
   // body, head, tail
   const red = mat(0xd81b30, { roughness: .5 }), gold = mat(0xffc93c, { roughness: .3, metalness: .5 });
-  M(G.sph, red, .32, .3, .95, 0, 2.78, .2, g);
+  M(G.sph, red, .32, .3, .95, 0, 2.78, .2, g); M(G.sph, mat(0xff8a1f, { roughness: .5 }), .26, .22, .7, 0, 2.66, .35, g);
+  for (let i = 0; i < 4; i++) noSh(M(G.torus, neon(0xffd23f, 1.4), .3 - i * .03, .28 - i * .03, .8, 0, 2.8, -.25 + i * .28, g));
   M(G.sph, red, .24, .24, .26, 0, 3.0, 1.25, g);
   M(G.coneZ, gold, .1, .09, .36, 0, 2.97, 1.6, g);
   for (const s of [-1, 1]) noSh(M(G.sph, neon(0x7dfcff, 2.5), .045, .045, .045, s * .16, 3.05, 1.38, g));
   const crestM = neon(0xffd23f, 1.6);
   for (let i = 0; i < 3; i++) { const c = M(featherGeo(.55, .08, 0xffd23f, 0xff3d3d), crestM, 1, 1, 1, 0, 3.15, 1.2 - i * .08, g); c.rotation.x = -1.1 - i * .25; }
   const tail = grp(g, 0, 2.78, -.65);
-  const tp = []; for (let i = -2; i <= 2; i++) tp.push([featherGeo(2.4 - Math.abs(i) * .3, .18, 0xff3d3d, 0xffe36e), mtx(i * .08, -Math.abs(i) * .02, 0, -.12, i * .14, 0)]);
+  const tp = []; for (let i = -2; i <= 2; i++) tp.push([featherGeo(2.4 - Math.abs(i) * .3, .18, 0xff2d3d, 0xffb21f), mtx(i * .08, -Math.abs(i) * .02, 0, -.12, i * .14, 0)]);
   M(mergeList(tp), fm, 1, 1, 1, 0, 0, 0, tail);
-  const sp = glowSprite(0xff7a2a, 9); sp.position.set(0, 2.7, -.2); g.add(sp); sprites.push([sp, .35]);
+  const sp = glowSprite(0xff7a2a, 9); sp.position.set(0, 2.7, -.2); g.add(sp); sprites.push([sp, .22]);
   rigPts.push([V(-.16, 0, 0), g, V(0, 2.5, .3)], [V(.16, 0, 0), g, V(0, 2.5, .3)]);
   return {
     rigPts, update(dt, t) {
@@ -520,7 +521,7 @@ function gliderButterfly(g, nm, sprites) {
     noSh(M(G.sph, neon(0x7dfcff, 2.6), .07, .07, .07, s * .5, 3.5, 1.9, g));
     noSh(M(G.sph, neon(0xffd23f, 2), .05, .05, .05, s * .09, 2.86, 1.08, g));
   }
-  const sp = glowSprite(0x9a7dff, 9); sp.position.set(0, 2.75, 0); g.add(sp); sprites.push([sp, .3]);
+  const sp = glowSprite(0x9a7dff, 9); sp.position.set(0, 2.75, 0); g.add(sp); sprites.push([sp, .18]);
   rigPts.push([V(-.16, 0, 0), g, V(0, 2.62, .2)], [V(.16, 0, 0), g, V(0, 2.62, .2)]);
   return {
     rigPts, update(dt, t) { const f = .12 + .3 * Math.sin(t * 3.1); for (const sd of sides) sd.w.rotation.z = sd.s * f; },
@@ -586,13 +587,13 @@ function gliderParachute(g, nm, sprites) {
     const geo = new THREE.ExtrudeGeometry(sh, { depth: w, bevelEnabled: true, bevelThickness: .07, bevelSize: .04, bevelSegments: 2, curveSegments: 8 });
     geo.rotateY(PI / 2); geo.translate(-w / 2, 0, 0);
     const pos = geo.attributes.position, col = new Float32Array(pos.count * 3), A0 = pal[i], B0 = pal[(i + 4) % N], c = new THREE.Color();
-    for (let k = 0; k < pos.count; k++) { const z = pos.getZ(k); c.copy(z < -.55 ? B0 : z > .9 ? pal[(i + 2) % N] : A0); if (pos.getY(k) < -.05) c.multiplyScalar(.7); col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b; }
+    for (let k = 0; k < pos.count; k++) { const z = pos.getZ(k); c.copy(z < -.55 ? B0 : z > .9 ? pal[(i + 2) % N] : A0); if (pos.getY(k) < -.05) c.multiplyScalar(.85); col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b; }
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     const th = -spread / 2 + (i + .5) * spread / N;
     parts.push([geo, mtx(Rc * Math.sin(th), H - Rc + Rc * Math.cos(th), 0, 0, 0, -th)]);
   }
   const cg = mergeList(parts), base = cg.attributes.position.array.slice();
-  const cm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .7, side: THREE.DoubleSide, emissive: 0xffffff, emissiveIntensity: 0 }); nm.push([cm, 0, .08]);
+  const cm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .7, side: THREE.DoubleSide, emissive: 0xffffff, emissiveIntensity: 0 }); nm.push([cm, 0, .22]);
   const can = grp(g); keep(M(cg, cm, 1, 1, 1, 0, 0, 0, can));
   // little LED dots on the leading edge for night
   const led = []; for (let i = 0; i <= N * 2; i++) { const th = -spread / 2 + i * spread / (N * 2); led.push(V(Rc * Math.sin(th) * 1.005, H - Rc + Rc * Math.cos(th) * 1.005 + .1, 1.35)); }
@@ -719,7 +720,7 @@ export function buildPorta() {
     nm, strings, extras: {
       door, inside: V(0, .1, -.05), indicator: ind,
       setOccupied(b) { occupied = !!b; ind.material = occM[occupied ? 1 : 0]; },
-      get occupied() { return occupied; },
+      isOccupied() { return occupied; },
     },
   });
 }
@@ -894,10 +895,11 @@ export function buildRangerBlimp() {
     for (const yy of [bandH / 2 + .28, -bandH / 2 + .12]) { const pts = []; for (let k = 0; k <= 24; k++) { const z = -bandW / 2 + bandW * k / 24, r = rAt(z) + .06; pts.push(V(s * Math.sqrt(r * r - yy * yy), yy, z)); } M(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, .06, 4), frame, 1, 1, 1, 0, 0, 0, g); }
   }
   // fins
-  const fs = new THREE.Shape(); fs.moveTo(0, 0); fs.lineTo(3.4, 0); fs.lineTo(4.2, 2.4); fs.lineTo(2.6, 2.6); fs.quadraticCurveTo(1, 1.2, 0, .9); fs.closePath();
-  const fgeo = new THREE.ExtrudeGeometry(fs, { depth: .14, bevelEnabled: true, bevelThickness: .04, bevelSize: .04, bevelSegments: 1 }); fgeo.translate(0, 0, -.07); fgeo.rotateY(-PI / 2);
+  const fs = new THREE.Shape(); fs.moveTo(0, 0); fs.lineTo(4.4, -1.5); fs.lineTo(4.8, 1.6); fs.lineTo(3.2, 2.0); fs.quadraticCurveTo(1.2, 1.0, 0, .6); fs.closePath();
+  const fgeo = new THREE.ExtrudeGeometry(fs, { depth: .14, bevelEnabled: true, bevelThickness: .04, bevelSize: .04, bevelSegments: 1 }); fgeo.translate(0, 0, -.07); fgeo.rotateY(PI / 2);
   const finM = mat(0x5b6634, { roughness: .55 }), finEdge = neon(0xff7a1f, 1.6);
-  for (let i = 0; i < 4; i++) { const a = i / 4 * TAU; const f = grp(g, 0, 0, -L + 3.6); f.rotation.z = a; M(fgeo, finM, 1, 1, 1, 0, rAt(-L + 3) - .5, 0, f); seg(G.cylLo, finEdge, V(0, rAt(-L + 3) - .5 + 2.6, -2.6), V(0, rAt(-L + 3) - .5 + 2.4, -4.2), .05, f); }
+  const fb = rAt(-L + 4.2) - .25;
+  for (let i = 0; i < 4; i++) { const a = i / 4 * TAU; const f = grp(g, 0, 0, -L + 4.2); f.rotation.z = a; M(fgeo, finM, 1, 1, 1, 0, fb, 0, f); seg(G.cylLo, finEdge, V(0, fb + 2.0, -3.2), V(0, fb + 1.6, -4.8), .06, f); }
   // gondola
   const gy = -Rm - .45;
   M(G.box, mat(0x3f4a24, { roughness: .5 }), 1.8, 1.1, 4.4, 0, gy, 1.0, g);

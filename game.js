@@ -7,6 +7,7 @@ import { RenderPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/
 import { UnrealBloomPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/UnrealBloomPass.js/+esm';
 import { OutputPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/OutputPass.js/+esm';
 import { ShaderPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/ShaderPass.js/+esm';
+import { mergeGeometries } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/utils/BufferGeometryUtils.js/+esm';
 import { installFX, FX, fxUniforms, fxWrapScene, SKY_FRAG, GRADE_FRAG } from './fx.js';
 installFX();
 
@@ -149,14 +150,16 @@ function place(b,x,z,rot,parent){
 function floatAttr(a){const n=a.count,s=a.itemSize,out=new Float32Array(n*s);for(let i=0;i<n;i++){out[i*s]=a.getX(i);if(s>1)out[i*s+1]=a.getY(i);if(s>2)out[i*s+2]=a.getZ(i);}return new THREE.BufferAttribute(out,s);}
 function bakeStatic(root){
   root.updateMatrixWorld(true);
-  const buckets=new Map();
+  const buckets=new Map();const keep=[];
   root.traverse(o=>{
+    if(o.isInstancedMesh||o.isPoints||o.isSprite||o.isSkinnedMesh||(o.isMesh&&Array.isArray(o.material))){keep.push(o);return;}
     if(!(o.isMesh||o.isLineSegments))return;
+    {let q=o.parent;while(q&&q!==root){if(keep.includes(q))return;q=q.parent;}}
     const src=o.geometry.index?o.geometry.toNonIndexed():o.geometry;
     const g=new THREE.BufferGeometry();
     g.setAttribute('position',floatAttr(src.attributes.position));
     if(!o.isLineSegments){if(src.attributes.normal)g.setAttribute('normal',floatAttr(src.attributes.normal));else{g.computeVertexNormals();}}
-    const useUv=!!(o.material.map);
+    const useUv=!!(o.material.map||o.material.normalMap||o.material.roughnessMap||o.material.emissiveMap||o.material.alphaMap);
     if(useUv&&src.attributes.uv)g.setAttribute('uv',floatAttr(src.attributes.uv));
     g.applyMatrix4(o.matrixWorld);
     const key=o.material.uuid+(o.isLineSegments?'L':'M');
@@ -174,6 +177,7 @@ function bakeStatic(root){
     if(b.useUv)geo.setAttribute('uv',new THREE.BufferAttribute(cat(b.uv),2));
     const m=new THREE.Mesh(geo,b.mat);m.castShadow=true;m.receiveShadow=true;m.frustumCulled=false;scene.add(m);
   }
+  for(const o of keep)scene.attach(o);
 }
 function shadowAll(g){g.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});return g;}
 
@@ -365,6 +369,7 @@ function fillBlock(h0,h1,r0,r1){
     if(t<.2)b=hexayurt();else if(t<.34)b=tent();else if(t<.52)b=dome(R(3,5.5));else if(t<.7){b=shade(R(5,7),R(4,6));if(rnd()<.5)camSitters.push(p.clone());}else b=parkedCar();
     place(b,p.x,p.z,face+(b.g.children[0]&&b.g.children[0].type==='Group'&&t>=.7?Math.PI/2:0));pts.push(p);
     if(rnd()<.35){const f=clockPos(h+R(-.05,.05),r+R(-4,4));place(flag(),f.x,f.z,R(0,TAU));}
+    if(PR&&PR.buildCampDecor&&rnd()<.42){const kd=pick(['couch','rug','banner','lightpole','bikepile','sign','lounge','couch','rug','lightpole']);const off=r<rm?5.5:-5.5;const f=clockPos(h+R(-.03,.03),r+off);const d=PR.buildCampDecor(kd,Math.floor(rnd()*1e6));place({g:d.g,obs:d.obs||[]},f.x,f.z,-h/12*TAU+(r<rm?Math.PI:0)+R(-.4,.4));}
     if(rnd()<.3){const f=clockPos(h+R(-.04,.04),r+(r<rm?-4.5:4.5));place(maskPost(),f.x,f.z,-h/12*TAU+(r<rm?Math.PI:0));}
   }
   const pal=rnd()<.5?WARM:RAINBOW;
@@ -454,12 +459,15 @@ function buildWorld(){
   // ground
   const gc=document.createElement('canvas');gc.width=gc.height=2048;drawLayout(gc.getContext('2d'),2048,'ground');
   const gt=new THREE.CanvasTexture(gc);gt.colorSpace=THREE.SRGBColorSpace;gt.anisotropy=8;
-  const cr=crackTextures(512,7);cr.normal.repeat.set(380,380);cr.ao.repeat.set(380,380);
-  const groundMat=new THREE.MeshStandardMaterial({map:gt,normalMap:cr.normal,normalScale:new THREE.Vector2(.34,.34),aoMap:cr.ao,aoMapIntensity:.35,roughness:.95,metalness:0});
+  const TL=new THREE.TextureLoader();const tw=t=>{t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=8;t.repeat.set(1600/5.5,1600/5.5);return t;};
+  const mudN=tw(TL.load('assets/tex/ground_cracked_mud_nor.jpg')),mudA=tw(TL.load('assets/tex/ground_cracked_mud_arm.jpg')),mudD=tw(TL.load('assets/tex/ground_cracked_mud_diff.jpg'));mudD.colorSpace=THREE.SRGBColorSpace;
+  const groundMat=new THREE.MeshStandardMaterial({map:gt,normalMap:mudN,normalScale:new THREE.Vector2(.9,.9),aoMap:mudA,aoMapIntensity:.6,roughness:.95,metalness:0});
+  const mudU={value:mudD};
   groundMat.onBeforeCompile=sh=>{
     sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec2 vGW;').replace('#include <begin_vertex>','#include <begin_vertex>\nvGW=(modelMatrix*vec4(transformed,1.)).xz;');
+    sh.uniforms.uMud=mudU;
     sh.fragmentShader=sh.fragmentShader.replace('#include <common>',`#include <common>
-varying vec2 vGW;
+varying vec2 vGW;uniform sampler2D uMud;
 float gh(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float gn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(gh(i),gh(i+vec2(1,0)),f.x),mix(gh(i+vec2(0,1)),gh(i+vec2(1,1)),f.x),f.y);}
 float gfbm(vec2 p){return gn(p)*.5+gn(p*2.1)*.3+gn(p*4.3)*.2;}`)
@@ -468,7 +476,8 @@ float gfbm(vec2 p){return gn(p)*.5+gn(p*2.1)*.3+gn(p*4.3)*.2;}`)
   float macro=gfbm(vGW*.012);float meso=gfbm(vGW*.09+7.);float micro=gn(vGW*1.7);
   diffuseColor.rgb*=.86+macro*.22+meso*.08;
   diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*vec3(1.05,1.0,.93),smoothstep(.45,.75,meso));
-  diffuseColor.rgb*=1.-(1.-smoothstep(.0,.25,micro))*.05*(1.-smoothstep(10.,60.,gDist));`)
+  diffuseColor.rgb*=1.-(1.-smoothstep(.0,.25,micro))*.05*(1.-smoothstep(10.,60.,gDist));
+  {vec3 md=texture2D(uMud,vGW/5.5).rgb;float ml=dot(md,vec3(.3,.59,.11))/.36;diffuseColor.rgb*=mix(1.,clamp(ml,.45,1.35),.85*(1.-smoothstep(25.,160.,gDist)));}`)
     .replace('#include <normal_fragment_maps>',THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;','mapN.xy *= normalScale*mix(1.,.12,smoothstep(12.,140.,gDist))*(.75+meso*.5);'))
     .replace('#include <aomap_fragment>',THREE.ShaderChunk.aomap_fragment.replace('float ambientOcclusion = ( texture2D( aoMap, vAoMapUv ).r - 1.0 ) * aoMapIntensity + 1.0;','float ambientOcclusion = ( texture2D( aoMap, vAoMapUv ).r - 1.0 ) * aoMapIntensity*mix(1.,.2,smoothstep(12.,140.,gDist)) + 1.0;'));
   };
@@ -525,7 +534,7 @@ float gfbm(vec2 p){return gn(p)*.5+gn(p*2.1)*.3+gn(p*4.3)*.2;}`)
   bulbs=new THREE.Points(bg,new THREE.PointsMaterial({size:.55,map:glowMap,vertexColors:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));scene.add(bulbs);
 
   buildVehicles();buildPeople();buildPickups();buildParticles();buildJobs();initPoofs();buildDevils();initPuffs();initTrail();buildDali();buildMasters();buildArtistCars();buildObstacleGrid();buildCrowd();
-  initDropFx();buildPads();buildManhunt();initArms();initLaserField();for(const v of artCars)addCarBeams(v);detachCarLights();initLightPool();initFlares();initSkyFlares();
+  initMotes();initDropFx();buildPads();buildManhunt();initArms();initLaserField();for(const v of artCars)addCarBeams(v);detachCarLights();initLightPool();initFlares();initSkyFlares();
   beacon=new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.4,260,20,1,true),new THREE.MeshBasicMaterial({color:new THREE.Color(0x46f1ff).multiplyScalar(1.5),transparent:true,opacity:.3,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false}));
   beacon.position.y=130;scene.add(beacon);
   beacon2=new THREE.Mesh(beacon.geometry,new THREE.MeshBasicMaterial({color:new THREE.Color(0xffb35a).multiplyScalar(1.5),transparent:true,opacity:.3,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false}));beacon2.position.y=130;beacon2.visible=false;scene.add(beacon2);
@@ -937,7 +946,8 @@ function applySettings(){
   if(audio.musicVol)audio.musicVol.gain.value=settings.music;
   const q=settings.gfx;
   sun.castShadow=q!=='low';
-  const ms=q==='high'?2048:1024;
+  const ms=q==='high'?4096:q==='medium'?2048:1024;
+  const sb=q==='high'?95:75;Object.assign(sun.shadow.camera,{left:-sb,right:sb,top:sb,bottom:-sb});sun.shadow.camera.updateProjectionMatrix();if(motes)motes.visible=q!=='low';
   if(sun.shadow.mapSize.x!==ms){sun.shadow.mapSize.set(ms,ms);if(sun.shadow.map){sun.shadow.map.dispose();sun.shadow.map=null;}}
   bloom.enabled=q!=='low';
   setCrowdCount();prCap=q==='high'?1.5:q==='medium'?1:.75;VIEW=q==='low'?120:q==='medium'?160:200;
@@ -1982,6 +1992,7 @@ function openChute(){const S=P.sky;if(S.canopy)return;
 function landSkydive(){
   const S=P.sky;P.sky=null;if(S.canopy)setTimeout(()=>scene.remove(S.canopy),2500),S.canopy.position.y=P.pos.y+.2,S.canopy.rotation.x=1.3;
   P.pos.y=groundHeight(P.pos.x,P.pos.z);P.vy=0;P.onGround=true;P.vel.set(0,0,0);player.g.rotation.x=0;player.g.rotation.z=0;oneShot(player,'Jump_Land',.6);
+  W.shake=Math.max(W.shake,S.canopy?.35:1.2);
   const dMan=Math.hypot(P.pos.x,P.pos.z),dCamp=d2(P.pos,CAMP);const ff=(S.freefall||S.t).toFixed(0);
   state.stats.skydives=(state.stats.skydives||0)+1;
   if(S.drop)onDropLanded(S.first);
@@ -1997,6 +2008,49 @@ function airUpdate(dt,inp){
 }
 
 
+// ================= prop compaction: merge a prop's static meshes by material =================
+// Moving parts are found by running the prop's update a few times and seeing which nodes change.
+const _cm=new THREE.Matrix4();
+function compactProp(b,keep){
+  const g=b.g;keep=keep||[];const moving=new Set(keep.filter(Boolean));
+  const snap=new Map();g.traverse(o=>{o.updateMatrix();snap.set(o,[o.matrix.clone(),o.visible,o.material]);});
+  if(b.update){try{b.update(.37,1.3,{night:1,speed:5});b.update(.41,2.9,{night:0,speed:0});b.update(.2,4.4,{night:.5,speed:2});}catch(_){}}
+  if(b.setOccupied){try{b.setOccupied(true);b.setOccupied(false);}catch(_){}}
+  g.traverse(o=>{o.updateMatrix();const m=snap.get(o);if(m&&(!m[0].equals(o.matrix)||m[1]!==o.visible||m[2]!==o.material))moving.add(o);if(o.isSprite||o.isPoints||o.isLine||o.isSkinnedMesh||o.isInstancedMesh)moving.add(o);});
+  const isMoving=o=>{for(let q=o;q&&q!==g;q=q.parent)if(moving.has(q))return true;return false;};
+  g.updateMatrixWorld(true);const inv=new THREE.Matrix4().copy(g.matrixWorld).invert();
+  const buckets=new Map();const victims=[];
+  g.traverse(o=>{if(!o.isMesh||isMoving(o)||Array.isArray(o.material)||o.material.transparent||o.morphTargetInfluences)return;
+    const src=o.geometry;if(!src.attributes.position||!src.attributes.normal)return;
+    const geo=new THREE.BufferGeometry();geo.setAttribute('position',src.attributes.position.clone());geo.setAttribute('normal',src.attributes.normal.clone());
+    if(src.attributes.uv)geo.setAttribute('uv',src.attributes.uv.clone());else geo.setAttribute('uv',new THREE.BufferAttribute(new Float32Array(src.attributes.position.count*2),2));
+    if(src.index)geo.setIndex(src.index.clone());
+    let ng=geo.index?geo.toNonIndexed():geo;
+    ng.applyMatrix4(_cm.copy(inv).multiply(o.matrixWorld));
+    const k=o.material.uuid;if(!buckets.has(k))buckets.set(k,{m:o.material,geos:[],cast:o.castShadow});buckets.get(k).geos.push(ng);victims.push(o);});
+  if(victims.length<4)return b;
+  for(const o of victims)o.parent.remove(o);
+  for(const bk of buckets.values()){const mg=mergeGeometries(bk.geos,false);if(!mg)continue;const mesh=new THREE.Mesh(mg,bk.m);mesh.castShadow=true;mesh.receiveShadow=true;g.add(mesh);}
+  return b;
+}
+// ================= air motes: sunlit dust drifting around the camera =================
+let motes=null;const MOTE_N=900,motePos=new Float32Array(MOTE_N*3),moteV=new Float32Array(MOTE_N*3);
+function initMotes(){
+  const g=new THREE.BufferGeometry();for(let i=0;i<MOTE_N;i++){motePos[i*3]=R(-30,30);motePos[i*3+1]=R(0,14);motePos[i*3+2]=R(-30,30);moteV[i*3]=R(.2,.9);moteV[i*3+1]=R(-.08,.12);moteV[i*3+2]=R(-.2,.4);}
+  g.setAttribute('position',new THREE.BufferAttribute(motePos,3));
+  motes=new THREE.Points(g,new THREE.PointsMaterial({size:.07,map:glowMap,color:0xfff0d8,transparent:true,opacity:.5,depthWrite:false,blending:THREE.AdditiveBlending}));
+  motes.frustumCulled=false;scene.add(motes);
+}
+function updateMotes(dt){
+  if(!motes||!motes.visible)return;const c=camera.position;const t=performance.now()*.001;
+  for(let i=0;i<MOTE_N;i++){let x=motePos[i*3]+moteV[i*3]*dt+Math.sin(t*.7+i)*dt*.3,y=motePos[i*3+1]+moteV[i*3+1]*dt,z=motePos[i*3+2]+moteV[i*3+2]*dt;
+    if(x>30)x-=60;else if(x<-30)x+=60;if(z>30)z-=60;else if(z<-30)z+=60;if(y>14)y-=14;else if(y<0)y+=14;motePos[i*3]=x;motePos[i*3+1]=y;motePos[i*3+2]=z;}
+  motes.position.set(Math.floor(c.x/60)*60,Math.max(0,c.y-7),Math.floor(c.z/60)*60);
+  // wrap the cloud so it always surrounds the camera
+  const ox=c.x-motes.position.x,oz=c.z-motes.position.z;for(let i=0;i<MOTE_N;i++){const dx=motePos[i*3]-ox,dz=motePos[i*3+2]-oz;if(dx>30)motePos[i*3]-=60;else if(dx<-30)motePos[i*3]+=60;if(dz>30)motePos[i*3+2]-=60;else if(dz<-30)motePos[i*3+2]+=60;}
+  motes.geometry.attributes.position.needsUpdate=true;
+  const day=1-night;motes.material.opacity=(.18+day*.45+state.dust*.4)*(c.y<60?1:0);motes.material.color.setRGB(1,.92+day*.05,.8+day*.1);
+}
 // ================= THE DROP: every new week starts in the sky =================
 let PR=null;
 async function loadProps(){try{PR=await import('./props.js');if(PR.initProps)PR.initProps({neon,mat,glowMap});}catch(e){console.warn('props.js failed to load',e);PR=null;}}
@@ -2088,13 +2142,13 @@ const pads=[];
 function buildPads(){
   const spots=[clockPos(3,262),clockPos(9,262),clockPos(6,300),clockPos(7.25,392),clockPos(12,120),clockPos(1.5,420),clockPos(10.5,420),clockPos(4.5,200),clockPos(7.5,200)];
   for(const p of spots){collide(p,3);let b;
-    if(PR&&PR.buildLaunchPad)b=PR.buildLaunchPad();
+    if(PR&&PR.buildLaunchPad)b=compactProp(PR.buildLaunchPad());
     else{const g=new THREE.Group();g.add(M(G.cyl,mat(0x2a2a30,{roughness:.5,metalness:.4}),2.6,.3,2.6,0,.15,0));for(let k=0;k<3;k++){const t=new THREE.Mesh(new THREE.TorusGeometry(2.2-k*.6,.08,8,48),neon(0x46f1ff,.8));t.rotation.x=Math.PI/2;t.position.y=.35+k*.02;g.add(t);}b={g,update:()=>{}};}
     b.g.position.set(p.x,0,p.z);scene.add(b.g);pads.push({b,pos:new THREE.Vector3(p.x,0,p.z),cool:0});}
 }
 function updatePads(dt){
   const t=performance.now()*.001;
-  for(const pd of pads){const d=d2(pd.pos,P.pos);if(d<250&&pd.b.update)pd.b.update(dt,t,{night});pd.cool-=dt;
+  for(const pd of pads){const d=d2(pd.pos,P.pos);pd.b.g.visible=d<320;if(d<250&&pd.b.update)pd.b.update(dt,t,{night});pd.cool-=dt;
     if(pd.cool<=0&&d<2.6&&!P.vehicle&&!P.sky&&!P.ride&&!P.flying&&P.pos.y<1.5){pd.cool=3;launchUp();}}
 }
 function launchUp(){
@@ -2187,7 +2241,7 @@ function updateArms(dt){
     // burners nearby react
     if(frameNo%3===0)for(let i=0;i<crowdN;i++){if((cX[i]-P.pos.x)**2+(cZ[i]-P.pos.z)**2<200)crowdCheer(i,1.5);}
   }
-  const hits=W.sys.update(dt,{targets:weaponTargets(),groundHeight,solid:null});
+  const hits=W.sys.update(dt,{targets:weaponTargets(),groundHeight,solid:null,light:clamp(1-night,.12,1)});
   if(hits&&hits.length)for(const h of hits)onWeaponHit(h);
   updateWeaponPickups(dt);updateCrosshair();
 }
@@ -2203,13 +2257,13 @@ function buildWeaponPickups(){
   const spots=[];
   for(let i=0;i<artSpots.length&&spots.length<ids.length*2;i+=2){const p=artSpots[i].clone();p.x+=6;p.z+=6;spots.push(p);}
   spots.forEach((p,i)=>{collide(p,1.5);const id=ids[i%ids.length];const def=WDEF(id);
-    let b;if(PR&&PR.buildWeaponPickup)b=PR.buildWeaponPickup(def.color);else{const g=new THREE.Group();g.add(M(G.cyl,mat(0x2a2a30),.6,1,.6,0,.5,0));const mount=new THREE.Object3D();mount.position.y=1.6;g.add(mount);b={g,mount,update:()=>{}};}
-    const gun=WP.buildGun(id);gun.g.scale.setScalar(1.4);b.mount.add(gun.g);
+    let b;if(PR&&PR.buildWeaponPickup)b=compactProp(PR.buildWeaponPickup(def.color));else{const g=new THREE.Group();g.add(M(G.cyl,mat(0x2a2a30),.6,1,.6,0,.5,0));const mount=new THREE.Object3D();mount.position.y=1.6;g.add(mount);b={g,mount,update:()=>{}};}
+    const gun=compactProp(WP.buildGun(id));gun.g.scale.setScalar(1.4);b.mount.add(gun.g);
     b.g.position.set(p.x,0,p.z);scene.add(b.g);W.pickups.push({id,b,gun,pos:new THREE.Vector3(p.x,0,p.z),taken:false,respawn:0});});
 }
 function updateWeaponPickups(dt){
   const t=performance.now()*.001;
-  for(const pk of W.pickups){const d=d2(pk.pos,P.pos);const near=d<200;pk.b.g.visible=d<500;
+  for(const pk of W.pickups){const d=d2(pk.pos,P.pos);const near=d<200;pk.b.g.visible=d<260;
     if(near){pk.b.update&&pk.b.update(dt,t,{night});if(pk.b.mount){pk.b.mount.rotation.y+=dt*1.2;pk.b.mount.position.y=1.6+Math.sin(t*2+pk.pos.x)*.08;}}
     if(pk.taken){pk.respawn-=dt;if(pk.respawn<=0){pk.taken=false;pk.gun.g.visible=true;}continue;}
     if(d<2.2&&!P.vehicle&&P.pos.y<3){pk.taken=true;pk.respawn=90;pk.gun.g.visible=false;giveWeapon(pk.id);}}
@@ -2259,19 +2313,19 @@ function buildManhunt(){
   for(let i=0;i<6;i++){const r=makeRanger();r.pos.copy(rangerSpawnPoint(60,160));newPatrol(r);}
   // outpost
   const op=clockPos(4.3,300);collide(op,6);
-  if(PR&&PR.buildRangerOutpost){const b=PR.buildRangerOutpost();b.g.position.set(op.x,0,op.z);b.g.rotation.y=-4.3/12*TAU+Math.PI;scene.add(b.g);RG.outpost=b;
+  if(PR&&PR.buildRangerOutpost){const b=compactProp(PR.buildRangerOutpost());b.g.position.set(op.x,0,op.z);b.g.rotation.y=-4.3/12*TAU+Math.PI;scene.add(b.g);RG.outpost=b;
     if(b.obs)for(const o of b.obs){const c=Math.cos(b.g.rotation.y),s2=Math.sin(b.g.rotation.y);obstacles.push({x:op.x+o[0]*c+o[1]*s2,z:op.z-o[0]*s2+o[1]*c,r:o[2]});}
     RG.outpostSpot=b.spot?b.g.localToWorld(b.spot.clone()):op.clone();}
   else RG.outpostSpot=op.clone();
   RG.outpostSpot.y=0;
   // searchlight towers around the city
-  if(PR&&PR.buildSearchTower)for(const [h,r] of [[2.5,470],[5,480],[7,480],[9.5,470],[12,250],[3,150],[9,150]]){const p=clockPos(h,r);collide(p,3);const b=PR.buildSearchTower();b.g.position.set(p.x,0,p.z);scene.add(b.g);
+  if(PR&&PR.buildSearchTower)for(const [h,r] of [[2.5,470],[5,480],[7,480],[9.5,470],[12,250],[3,150],[9,150]]){const p=clockPos(h,r);collide(p,3);const b0=PR.buildSearchTower();const b=compactProp(b0,[b0.head,b0.beam]);b.g.position.set(p.x,0,p.z);scene.add(b.g);
     if(b.obs)for(const o of b.obs)obstacles.push({x:p.x+o[0],z:p.z+o[1],r:o[2]});RG.towers.push({b,pos:new THREE.Vector3(p.x,0,p.z),ph:R(0,TAU),sp:R(.25,.45),aim:new THREE.Vector3()});}
   // porta-potty hiding spots: one decorated porta in every camp district, plus the static banks
-  if(PR&&PR.buildPorta)for(let i=0;i<22;i++){const h=2.3+i*(7.4/22),r=pick(STREETS)[1]+R(-2,2);const p=clockPos(h,r);collide(p,1.2);const b=PR.buildPorta();b.g.position.set(p.x,0,p.z);b.g.rotation.y=-h/12*TAU+(rnd()<.5?0:Math.PI);scene.add(b.g);obstacles.push({x:p.x,z:p.z,r:.9});
+  if(PR&&PR.buildPorta)for(let i=0;i<22;i++){const h=2.3+i*(7.4/22),r=pick(STREETS)[1]+R(-2,2);const p=clockPos(h,r);collide(p,1.2);const b0=PR.buildPorta();const b=compactProp(b0,[b0.door]);b.g.position.set(p.x,0,p.z);b.g.rotation.y=-h/12*TAU+(rnd()<.5?0:Math.PI);scene.add(b.g);obstacles.push({x:p.x,z:p.z,r:.9});
     const front=new THREE.Vector3(0,0,1.4).applyAxisAngle(_UPV,b.g.rotation.y).add(b.g.position);RG.hides.push({b,pos:new THREE.Vector3(p.x,0,p.z),front,door:0,want:0,occ:false});}
   // free costume racks: change your look, lose the heat
-  if(PR&&PR.buildCostumeRack)for(const [h,r] of [[2.5,305],[4,335],[5.5,395],[6.5,305],[8,335],[9.5,395],[7.25,350],[3,425],[9,425]]){const p=clockPos(h,r);collide(p,2);const b=PR.buildCostumeRack();b.g.position.set(p.x,0,p.z);b.g.rotation.y=-h/12*TAU+Math.PI;scene.add(b.g);
+  if(PR&&PR.buildCostumeRack)for(const [h,r] of [[2.5,305],[4,335],[5.5,395],[6.5,305],[8,335],[9.5,395],[7.25,350],[3,425],[9,425]]){const p=clockPos(h,r);collide(p,2);const b=compactProp(PR.buildCostumeRack());b.g.position.set(p.x,0,p.z);b.g.rotation.y=-h/12*TAU+Math.PI;scene.add(b.g);
     if(b.obs)for(const o of b.obs){const c=Math.cos(b.g.rotation.y),s2=Math.sin(b.g.rotation.y);obstacles.push({x:p.x+o[0]*c+o[1]*s2,z:p.z-o[0]*s2+o[1]*c,r:o[2]});}RG.racks.push({b,pos:new THREE.Vector3(p.x,0,p.z),cool:0});}
 }
 function newPatrol(r){const f=P.pos;const a=R(0,TAU),d=R(15,70);r.target.set(r.pos.x+Math.sin(a)*d,0,r.pos.z+Math.cos(a)*d);if(rnd()<.35)r.target.set(f.x+R(-60,60),0,f.z+R(-60,60));if(Math.hypot(r.target.x,r.target.z)>FENCE_IN-15)r.target.multiplyScalar(.8);}
@@ -2313,6 +2367,7 @@ function updateManhunt(dt){
     const d=d2(r.pos,f);const near=d<220;r.g.visible=d<260;
     // status effects from the guns
     if(r.fx){r.fxT-=dt;if(r.fxT<=0){r.fx=null;if(r.fxIcon){r.g.remove(r.fxIcon);r.fxIcon=null;}r.lift=0;}}
+    if(r.fxIcon&&r.fxIcon.userData.update)r.fxIcon.userData.update(dt,t);
     const fx=r.fx;
     if(fx==='stun'||fx==='knockback'){r.speed=0;if(near){play(r.c,r.fxT>.6?'Lie_Idle':'Sit_Floor_Idle',.2);r.c.mixer.update(dt);}r.q.visible=r.ex.visible=false;r.g.position.y=lerp(r.g.position.y,0,dt*6);continue;}
     if(fx==='trap'){r.speed=0;r.lift=Math.min(3.2,r.lift+dt*1.6);r.g.position.y=r.lift+Math.sin(t*2+r.heading)*.15;r.g.rotation.y+=dt*.8;if(near){play(r.c,'Jump_Idle',.2);r.c.mixer.update(dt);}r.q.visible=r.ex.visible=false;continue;}
@@ -2406,7 +2461,7 @@ function updateDrones(dt,f,vis,st,report){
   }
   if(st>=5&&!RG.blimp&&PR&&PR.buildRangerBlimp){const b=PR.buildRangerBlimp();scene.add(b.g);b.g.position.set(f.x+200,90,f.z);RG.blimp={b,pos:b.g.position};}
   if(RG.blimp){const B=RG.blimp;const tgt=st>=4?RG.lastSeen:_drv.set(B.pos.x+300,0,B.pos.z);_drv.set(tgt.x,st>=4?85:140,tgt.z);B.pos.lerp(_drv,Math.min(1,dt*.15));B.b.g.rotation.y=lerpAngle(B.b.g.rotation.y,Math.atan2(tgt.x-B.pos.x,tgt.z-B.pos.z),dt*.3);B.b.update&&B.b.update(dt,t,{night});
-    if(B.b.beam){B.b.beam.scale.z=B.pos.y;}
+    if(B.b.head)B.b.head.rotation.x=Math.PI/2;if(B.b.beam){B.b.beam.scale.z=B.pos.y;}
     if(vis>0&&st>=4&&Math.hypot(f.x-B.pos.x,f.z-B.pos.z)<9)report(true,B);
     if(st<4&&B.pos.y>130){scene.remove(B.b.g);RG.blimp=null;}}
 }
@@ -2423,13 +2478,13 @@ function enterHide(h){
 function leaveHide(quiet){const h=P.hidden;if(!h)return;P.hidden=null;h.occ=false;h.want=1;if(h.b.setOccupied)h.b.setOccupied(false);setTimeout(()=>{h.want=0;},900);
   P.pos.copy(h.front);player.g.visible=true;P.heading=Math.atan2(h.front.x-h.pos.x,h.front.z-h.pos.z);if(!quiet)sfx.chime();}
 function updateHides(dt){
-  for(const h of RG.hides){h.door=lerp(h.door,h.want,Math.min(1,dt*8));if(h.b.door)h.b.door.rotation.y=-1.9*h.door;}
+  for(const h of RG.hides){const dh=d2(h.pos,P.pos);h.b.g.visible=dh<(night>.5?260:200);h.door=lerp(h.door,h.want,Math.min(1,dt*8));if(h.b.door)h.b.door.rotation.y=-1.9*h.door;}
   const h=P.hidden;if(!h)return;
   // a suspicious ranger knocks and opens the door
   if(h.suspect)for(const r of RG.list){if(!r.fx&&d2(r.pos,h.front)<1.6){h.want=1;leaveHide(true);caught(r);return;}}
   if(wantedStars()>0&&!h.suspect){RG.seenT+=dt*.8;}
 }
-function updateRacks(dt){for(const k of RG.racks){k.cool-=dt;const d=d2(k.pos,P.pos);if(d<200&&k.b.update)k.b.update(dt,performance.now()*.001,{night});}}
+function updateRacks(dt){for(const k of RG.racks){k.cool-=dt;const d=d2(k.pos,P.pos);k.b.g.visible=d<240;if(d<200&&k.b.update)k.b.update(dt,performance.now()*.001,{night});}}
 function nearRack(){for(const k of RG.racks)if(d2(k.pos,P.pos)<3.4)return k;return null;}
 function useRack(k){
   if(k.cool>0){floatText('The closet is being restocked.');return;}k.cool=40;
@@ -2762,7 +2817,7 @@ function update(dt,rdt){rdt=rdt||dt;
   }
   if(speeding){setWanted(state.wanted+dt*.33);RG.lastSeen.copy(focusPos());RG.seenT=0;}
   updateRanger(dt);updateManhunt(dt);updateArms(dt);
-  updateArtCars(dt);updateNPCs(dt);updateCyclists(dt);updatePickups(dt);updateBurns(dt);updateFireworks(dt);updateDust(dt);updatePoofs(dt);updateJob(dt);updateLamps();updateSoundCamps(dt);updateDevils(dt);updatePuffs(dt);updateChatter(dt);updateCrowd(dt);crowdEvents();updateDali(dt);updateAmbientSky(dt);updatePlaneAuto(dt);updateDropPlane(dt);updateDropFx(dt);updatePads(dt);updateTrail(dt);updateMasters(dt);{const tt=performance.now()*.001;updateLaserField(tt);updateFlares(tt);}updateSkyFlares(dt);updateLightPool();
+  updateArtCars(dt);updateNPCs(dt);updateCyclists(dt);updatePickups(dt);updateBurns(dt);updateFireworks(dt);updateDust(dt);updatePoofs(dt);updateJob(dt);updateLamps();updateSoundCamps(dt);updateDevils(dt);updatePuffs(dt);updateChatter(dt);updateCrowd(dt);crowdEvents();updateDali(dt);updateAmbientSky(dt);updatePlaneAuto(dt);updateDropPlane(dt);updateDropFx(dt);updatePads(dt);updateMotes(dt);updateTrail(dt);updateMasters(dt);{const tt=performance.now()*.001;updateLaserField(tt);updateFlares(tt);}updateSkyFlares(dt);updateLightPool();
   updateQuest();
   const tgt=QUESTS[state.quest]&&QUESTS[state.quest].target();
   beacon.visible=!!tgt;if(tgt){beacon.position.x=tgt.x;beacon.position.z=tgt.z;}
@@ -3064,7 +3119,7 @@ async function boot(data){
     applySettings();pendingSave=loadSave();
     ready=true;const go=$('#go');go.disabled=false;go.textContent=pendingSave?'Continue the week':'Enter the playa';$('#go2').hidden=!pendingSave;
     $('#load').hidden=true;
-    window.__game={aimPoint,weaponTargets,startDrop,clearAir,drop,RG,W,mouse,giveWeapon,equip,holster,setWanted,enterHide,leaveHide,armed,pads,get WP(){return WP;},get PR(){return PR;},CAMP,CENTER,MAN,TEMPLE,exitVehicle,scene,get night(){return night;},LZ,FL,skyFlares,MB,TB,masters,admire,nearPiece,cX,cZ,crowdBurnGather,airport,ambientSky,toggleFly,boardPlane,jumpOut,dali,step(n,dt){for(let i=0;i<n;i++){update(dt||1/60);updateCamera(dt||1/60,false);}},keys,obstaclesNear,settings,applySettings,get crowdVerts(){return crowdMeshes.map(m=>m.geometry.attributes.position.count+'x'+m.count).join(' ');},parkPos,ramps,vehicles,groundHeight,state,P,startGame,startJob,enterVehicle,addKarma,poof,artCars,lamps,GIVERS,openPhone,openPause,renderer,camera,get player(){return player;},cam(y,p,d){camYaw=y;camPitch=p;camDist=d;lastLook=performance.now()+1e6;}};
+    window.__game={compactProp,aimPoint,weaponTargets,startDrop,clearAir,drop,RG,W,mouse,giveWeapon,equip,holster,setWanted,enterHide,leaveHide,armed,pads,get WP(){return WP;},get PR(){return PR;},CAMP,CENTER,MAN,TEMPLE,exitVehicle,scene,get night(){return night;},LZ,FL,skyFlares,MB,TB,masters,admire,nearPiece,cX,cZ,crowdBurnGather,airport,ambientSky,toggleFly,boardPlane,jumpOut,dali,step(n,dt){for(let i=0;i<n;i++){update(dt||1/60);updateCamera(dt||1/60,false);}},keys,obstaclesNear,settings,applySettings,get crowdVerts(){return crowdMeshes.map(m=>m.geometry.attributes.position.count+'x'+m.count).join(' ');},parkPos,ramps,vehicles,groundHeight,state,P,startGame,startJob,enterVehicle,addKarma,poof,artCars,lamps,GIVERS,openPhone,openPause,renderer,camera,get player(){return player;},cam(y,p,d){camYaw=y;camPitch=p;camDist=d;lastLook=performance.now()+1e6;}};
   }catch(err){
     console.error(err);$('#go').textContent='Could not load the 3D models. Reload to try again.';
   }

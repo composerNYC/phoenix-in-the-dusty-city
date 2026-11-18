@@ -687,7 +687,7 @@ class Pts {
     this.s0 = new Float32Array(cap); this.s1 = new Float32Array(cap); this.a0 = new Float32Array(cap); this.flick = new Uint8Array(cap);
     const geo = new THREE.BufferGeometry();
     const at = (name, arr, n) => { const a = new THREE.BufferAttribute(arr, n); a.setUsage(THREE.DynamicDrawUsage); geo.setAttribute(name, a); return a; };
-    this.aPos = at('position', this.pos, 3); this.aCol = at('color', this.col, 3); this.aSize = at('size', this.size, 1); this.aAlpha = at('alpha', this.alpha, 1); this.aShape = at('shape', this.shape, 1);
+    this.attrs = [at('position', this.pos, 3), at('color', this.col, 3), at('size', this.size, 1), at('alpha', this.alpha, 1), at('shape', this.shape, 1)];
     geo.setDrawRange(0, 0);
     const mat = new THREE.ShaderMaterial({ uniforms: { uMap: { value: atlasTex() }, uPx: { value: 500 }, uLight: { value: 1 } }, vertexShader: PTS_VS, fragmentShader: PTS_FS, transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending });
     this.obj = new THREE.Points(geo, mat); this.obj.frustumCulled = false; this.obj.renderOrder = additive ? 3 : 2;
@@ -718,7 +718,7 @@ class Pts {
     this.n = any;
     if (!any) { this.hi = 0; this.cur = 0; }
     const geo = this.obj.geometry; geo.setDrawRange(0, this.hi); this.obj.visible = this.hi > 0;
-    if (this.hi) for (const a of [this.aPos, this.aCol, this.aSize, this.aAlpha, this.aShape]) { a.clearUpdateRanges(); a.addUpdateRange(0, this.hi * a.itemSize); a.needsUpdate = true; }
+    if (this.hi) for (const a of this.attrs) { a.clearUpdateRanges(); a.addUpdateRange(0, this.hi * a.itemSize); a.needsUpdate = true; }
   }
   clear() { this.life.fill(0); this.alpha.fill(0); this.hi = 0; this.cur = 0; }
 }
@@ -835,7 +835,7 @@ export function createWeaponSystem(scene, camera) {
     KIND[name] = Object.assign({ name, im, n: 0, cap }, opt); return KIND[name];
   };
   mkKind('blob', new THREE.IcosahedronGeometry(1, 2), glowInst(new THREE.MeshStandardMaterial({ roughness: .18, metalness: 0 }), .25), 220, { halo: 0, scale: .1 });
-  mkKind('star', starGeo(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 40, { halo: 1.1, haloCol: [1.5, 1.15, .3], scale: .22 });
+  mkKind('star', starGeo(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 40, { halo: .7, haloCol: [1.1, .75, .08], scale: .24 });
   mkKind('dot', new THREE.SphereGeometry(1, 14, 10), glowInst(new THREE.MeshStandardMaterial({ roughness: .3 }), .55), 300, { halo: .22, scale: .085 });
   mkKind('shell', new THREE.SphereGeometry(1, 20, 14), new THREE.MeshStandardMaterial({ map: texHalftone('#ffe600', '#ff3b2f', 'yr'), roughness: .4, emissive: 0xffffff, emissiveMap: texHalftone('#ffe600', '#ff3b2f', 'yr'), emissiveIntensity: .35 }), 24, { halo: .9, haloCol: [1, .7, .1], scale: .14 });
   mkKind('orb', new THREE.SphereGeometry(1, 24, 16), new THREE.MeshStandardMaterial({ map: texClock(false), metalness: .3, roughness: .35, emissive: 0xffdd88, emissiveMap: texClock(false), emissiveIntensity: .9 }), 20, { halo: .8, haloCol: [1.1, .7, .2], scale: .2 });
@@ -1005,7 +1005,7 @@ export function createWeaponSystem(scene, camera) {
       pr.target = (opts && opts.homingTarget) || null;
       switch (def.id) {
         case 'splatter': pr.col.set(pick(PAL.pollock)); pr.size = R(.8, 1.3); break;
-        case 'starry': pr.col.setRGB(3.2, 2.5, .7); break;
+        case 'starry': pr.col.setRGB(1.7, 1.15, .12); break;
         case 'dots': pr.col.set(pick(PAL.kusama)); pr.size = R(.8, 1.25); break;
         case 'pow': pr.col.set(0xffffff); break;
         case 'clock': pr.col.set(0xffffff); break;
@@ -1183,7 +1183,7 @@ export function createWeaponSystem(scene, camera) {
       // trails
       const x = pr.p.x, y = pr.p.y, z = pr.p.z;
       switch (def.id) {
-        case 'starry': for (let k = 0; k < 3; k++) { const a = pr.age * 40 + k * 2.1; _v1.copy(pr.v).normalize(); _v2.set(-_v1.z, 0, _v1.x).normalize(); _v3.crossVectors(_v1, _v2); const r = .22; fxAdd.spawn(x + (_v2.x * Math.cos(a) + _v3.x * Math.sin(a)) * r - _v1.x * k * .4, y + (_v2.y * Math.cos(a) + _v3.y * Math.sin(a)) * r - _v1.y * k * .4, z + (_v2.z * Math.cos(a) + _v3.z * Math.sin(a)) * r - _v1.z * k * .4, 0, 0, 0, k ? (k === 1 ? 0x6fa6ff : 0xffffff) : 0xffd23f, R(.08, .14), R(.35, .6), k === 2 ? 1 : 0, 0, 0, .2, 2.6); } if (frame % 2 === 0) { _v1.copy(pr.v).normalize(); fxNorm.spawn(x - _v1.x * .3 + R(-.12, .12), y - _v1.y * .3 + R(-.12, .12), z - _v1.z * .3 + R(-.12, .12), R(-.3, .3), R(-.3, .3), R(-.3, .3), pick([0x1d4fd8, 0x2a6bff, 0xffc81a, 0x0f2a8a, 0xffe14d]), R(.18, .3), R(.5, .8), 6, 0, 1, 1.4); } break;
+        case 'starry': for (let k = 0; k < 3; k++) { const a = pr.age * 40 + k * 2.1; _v1.copy(pr.v).normalize(); _v2.set(-_v1.z, 0, _v1.x).normalize(); _v3.crossVectors(_v1, _v2); const r = .22; fxAdd.spawn(x + (_v2.x * Math.cos(a) + _v3.x * Math.sin(a)) * r - _v1.x * k * .4, y + (_v2.y * Math.cos(a) + _v3.y * Math.sin(a)) * r - _v1.y * k * .4, z + (_v2.z * Math.cos(a) + _v3.z * Math.sin(a)) * r - _v1.z * k * .4, 0, 0, 0, k ? (k === 1 ? 0x6fa6ff : 0xffffff) : 0xffd23f, R(.08, .14), R(.35, .6), k === 2 ? 1 : 0, 0, 0, .2, 1.8); } { _v1.copy(pr.v).normalize(); fxNorm.spawn(x - _v1.x * .3 + R(-.12, .12), y - _v1.y * .3 + R(-.12, .12), z - _v1.z * .3 + R(-.12, .12), R(-.3, .3), R(-.3, .3), R(-.3, .3), pick([0x1d4fd8, 0x2a6bff, 0xffc81a, 0x0f2a8a, 0xffe14d]), R(.18, .3), R(.5, .8), 6, 0, 1, 1.4); } break;
         case 'splatter': pr.trailT += dt; if (pr.trailT > .09) { pr.trailT = 0; fxNorm.spawn(x, y, z, pr.v.x * .1, -.5, pr.v.z * .1, pr.col.getHex(), R(.04, .07), .6, 2, 10, 0); const g0 = gh(x, z); if (y - g0 < 3 && Math.random() < .35) { _v1.set(x + R(-.2, .2), g0, z + R(-.2, .2)); splat(_v1, true, pr.col.getHex(), 'paint', R(.12, .25)); } } break;
         case 'glitter': fxNorm.spawn(x, y, z, R(-.5, .5), R(-.5, .5), R(-.5, .5), pick(PAL.glitter), R(.06, .11), R(.3, .6), 7, 1, 1.5, 1, 1, 1, 1); break;
         case 'dots': if (frame % 3 === 0) fxNorm.spawn(x, y, z, 0, 0, 0, pr.col.getHex(), .08, .2, 2, 0, 0, .2); break;
