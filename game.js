@@ -946,7 +946,7 @@ function applySettings(){
   if(audio.musicVol)audio.musicVol.gain.value=settings.music;
   const q=settings.gfx;
   sun.castShadow=q!=='low';
-  const ms=q==='high'?4096:q==='medium'?2048:1024;
+  const ms=q==='high'?2048:1024;
   const sb=q==='high'?95:75;Object.assign(sun.shadow.camera,{left:-sb,right:sb,top:sb,bottom:-sb});sun.shadow.camera.updateProjectionMatrix();if(motes)motes.visible=q!=='low';
   if(sun.shadow.mapSize.x!==ms){sun.shadow.mapSize.set(ms,ms);if(sun.shadow.map){sun.shadow.map.dispose();sun.shadow.map=null;}}
   bloom.enabled=q!=='low';
