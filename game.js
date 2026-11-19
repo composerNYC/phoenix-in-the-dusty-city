@@ -8,7 +8,7 @@ import { UnrealBloomPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/exam
 import { OutputPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/OutputPass.js/+esm';
 import { ShaderPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/ShaderPass.js/+esm';
 import { mergeGeometries } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/utils/BufferGeometryUtils.js/+esm';
-import { installFX, FX, fxUniforms, fxWrapScene, SKY_FRAG, GRADE_FRAG } from './fx.js?v=3';
+import { installFX, FX, fxUniforms, fxWrapScene, SKY_FRAG, GRADE_FRAG } from './fx.js?v=4';
 installFX();
 
 const $ = s => document.querySelector(s);
@@ -2059,7 +2059,7 @@ function updateMotes(dt){
 }
 // ================= THE DROP: every new week starts in the sky =================
 let PR=null;
-async function loadProps(){try{PR=await import('./props.js?v=3');if(PR.initProps)PR.initProps({neon,mat,glowMap});}catch(e){console.warn('props.js failed to load',e);PR=null;}}
+async function loadProps(){try{PR=await import('./props.js?v=4');if(PR.initProps)PR.initProps({neon,mat,glowMap});}catch(e){console.warn('props.js failed to load',e);PR=null;}}
 const drop={active:null,plane:null,leaving:null};
 const _dd=new THREE.Vector3(),_plV=new THREE.Vector3();
 function dropPlaneModel(){
@@ -2085,30 +2085,38 @@ function startDrop(first){
   drop.active=D;drop.leaving=null;
   pl.g.visible=true;pl.g.position.copy(start);pl.g.rotation.set(0,D.heading,0);
   P.ride={drop:true,pos:pl.g.position,heading:D.heading,speed:D.speed,vy:0,bank:0,t:0};player.g.visible=false;
-  camYaw=D.heading+Math.PI*.85;camPitch=.32;
+  camYaw=D.heading+Math.PI;camPitch=.3;
   if(state.weapon&&W.gun)W.gun.g.visible=false;
   sfx.chime();
   if(first)showTitleCard();
-  toast(first?(touch.on?'You are flying the drop plane. Steer with the stick, tap Jump over a spot you like.':'You are flying the drop plane! A/D turn, W/S climb or dive, Shift boost. Space to jump.'):'Fly the drop plane anywhere. Space to jump.');
+  toast(first?(touch.on?'You are flying the drop plane. Steer with the stick, tap Jump over a spot you like.':'You are flying the drop plane! Click, then steer with the mouse (or A/D). W faster, S slower. Space to jump.'):'Fly the drop plane anywhere. Space to jump.');
 }
 function updateDropRide(dt,inp){
-  // the player flies the drop plane: A/D (or mouse-free joystick) turn, W/S climb/dive, Shift boost
+  // arcade flight: the plane flies where the camera points (mouse), A/D also turn, W faster, S slower
   const D=drop.active,pl=drop.plane;D.t+=dt;P.ride.t=D.t;
-  const turn=(inp.left?1:0)-(inp.right?1:0)-touch.jx,pitch=(inp.fwd?1:0)-(inp.back?1:0)-touch.jy;
-  const want=inp.boost?210:110;D.speed=lerp(D.speed,want,dt*(inp.boost?1.2:.8));
-  D.bank=lerp(D.bank||0,clamp(turn,-1,1)*.75,dt*4);D.heading+=D.bank*dt*1.9;
+  const keyTurn=(inp.left?1:0)-(inp.right?1:0)-touch.jx;
+  camYaw+=clamp(keyTurn,-1,1)*1.4*dt;
   const r0=Math.hypot(D.pos.x,D.pos.z);
-  if(r0>1700){const toC=Math.atan2(-D.pos.x,-D.pos.z);D.heading=lerpAngle(D.heading,toC,dt*.8);if(!D.warned){D.warned=true;toast('Edge of the desert. The plane swings back toward the city.');}}else if(r0<1500)D.warned=false;
-  D.vy=lerp(D.vy||0,clamp(pitch,-1,1)*55,dt*2.5);D.pos.y=clamp(D.pos.y+D.vy*dt,140,1200);if(D.pos.y<=140||D.pos.y>=1200)D.vy*=.5;_plV.copy(D.dir).multiplyScalar(D.speed);_plV.y=D.vy;
+  if(r0>1600){const toC=Math.atan2(-D.pos.x,-D.pos.z)+Math.PI;camYaw=lerpAngle(camYaw,toC,dt*1.2);if(!D.warned){D.warned=true;toast('Edge of the desert. Turning back toward the city.');}}else if(r0<1400)D.warned=false;
+  const target=camYaw+Math.PI,diff=wrapA(target-D.heading);
+  const prevH=D.heading;D.heading=wrapA(D.heading+clamp(diff*2.2*dt,-1.6*dt,1.6*dt));
+  const turnRate=wrapA(D.heading-prevH)/Math.max(dt,1e-4);
+  D.bank=lerp(D.bank||0,clamp(turnRate*.55,-.8,.8),dt*4);
+  const thr=(inp.fwd?1:0)-(inp.back?1:0)-touch.jy;
+  const want=inp.boost?230:thr>.3?170:thr<-.3?60:110;D.speed=lerp(D.speed,want,dt*1.1);
+  // mouse up/down: look down to dive, look level to climb
+  const pd=camPitch-.3,vyT=Math.abs(pd)<.05?0:clamp(-(pd-Math.sign(pd)*.05)*220,-75,55);
+  D.vy=lerp(D.vy||0,vyT,dt*2.5);D.pos.y=clamp(D.pos.y+D.vy*dt,140,1200);if(D.pos.y<=140&&D.vy<0||D.pos.y>=1200&&D.vy>0)D.vy=0;
   D.dir.set(Math.sin(D.heading),0,Math.cos(D.heading));
   D.pos.addScaledVector(D.dir,D.speed*dt);P.ride.heading=D.heading;P.ride.speed=D.speed;
-  pl.g.rotation.y=D.heading;pl.g.rotation.z=-D.bank+Math.sin(D.t*.6)*.02;pl.g.rotation.x=-Math.atan2(D.vy,D.speed)*.6;
+  _plV.copy(D.dir).multiplyScalar(D.speed);_plV.y=D.vy;
+  pl.g.rotation.y=D.heading;pl.g.rotation.z=-D.bank;pl.g.rotation.x=-Math.atan2(D.vy,D.speed)*.8;
   pl.update(dt,performance.now()*.001,{night});
+  pl.g.updateMatrixWorld(true);
   if(pl.door){pl.door.getWorldPosition(_dd);}else{_dd.set(0,2,-9);pl.g.localToWorld(_dd);}
   P.pos.copy(_dd);
   const r=Math.hypot(D.pos.x,D.pos.z);
   D.nextDiver-=dt;if(D.nextDiver<=0&&r<560&&D.divers<10){D.nextDiver=R(1.2,3.5);D.divers++;spawnDiver(_dd,D.heading+Math.PI);}
-  if(performance.now()-lastLook>1500)camYaw=lerpAngle(camYaw,D.heading+Math.PI,dt*1.5);
   if(inp.jumpEdge&&D.t>.8)dropJump();
 }
 function dropJump(){
@@ -2143,7 +2151,7 @@ function updateDropFx(dt){
     landRing.visible=true;landRing.position.set(P.pos.x+S.vel.x*tf*.6,gh+.15,P.pos.z+S.vel.z*tf*.6);const sc=1+clamp((P.pos.y-gh)/250,0,3);landRing.scale.setScalar(sc);landRing.material.opacity=.45+.3*Math.sin(performance.now()*.008);}
   else if(P.ride&&P.ride.drop&&drop.active){const D=drop.active;const ahead=Math.min(P.pos.y*.18,120);const lx=P.pos.x+D.dir.x*ahead,lz=P.pos.z+D.dir.z*ahead;landRing.visible=true;landRing.position.set(lx,groundHeight(lx,lz)+.15,lz);landRing.scale.setScalar(2+P.pos.y/150);landRing.material.opacity=.45+.3*Math.sin(performance.now()*.008);}
   else landRing.visible=false;
-  const v=S?S.vel:(P.flying?P.fv:(P.ride&&P.ride.drop?_plV:null));const sp=v?v.length():0;const k=clamp((sp-22)/40,0,1);
+  const v=S?S.vel:(P.flying?P.fv:(P.ride&&P.ride.drop?_plV:null));const sp=v?v.length():0;const k=v===_plV?clamp((sp-125)/90,0,.8):clamp((sp-22)/40,0,1);
   if(k<=0){slMesh.visible=false;return;}
   slMesh.visible=true;slMesh.material.opacity=k*.5;const c=camera.position;
   for(let i=0;i<SL_N;i++){const w=slW[i];
@@ -2173,7 +2181,7 @@ function launchUp(){
 
 // ================= ARMED: artsy guns, unlimited ammo, nobody gets hurt =================
 let WP=null;
-async function loadWeapons(){try{WP=await import('./weapons.js?v=3');if(WP.initWeapons)WP.initWeapons({glowMap});}catch(e){console.warn('weapons.js failed to load',e);WP=null;}}
+async function loadWeapons(){try{WP=await import('./weapons.js?v=4');if(WP.initWeapons)WP.initWeapons({glowMap});}catch(e){console.warn('weapons.js failed to load',e);WP=null;}}
 const W={sys:null,guns:{},gun:null,def:null,heat:0,over:false,aiming:false,zoom:1,shake:0,nextShot:0,beamOn:false,hitT:0,spin:0,pickups:[]};
 const mouse={l:false,r:false};
 const WDEF=id=>WP&&WP.WEAPONS.find(w=>w.id===id);
@@ -2986,14 +2994,14 @@ function updateCamera(dt,cinematic){
   if(cinematic){const a=performance.now()*.00004+2.25;camera.position.set(Math.sin(a)*150,28,Math.cos(a)*150+20);camera.lookAt(0,20,-30);camera.fov=55;camera.updateProjectionMatrix();return;}
   const f=focusPos();const v=P.vehicle;
   const dist=P.ride?(P.ride.drop?24:26):P.sky?Math.max(camDist,9):P.flying?Math.max(camDist,8):v?(v.kind==='art'?Math.max(camDist,16):Math.max(camDist,6.5)):camDist;
-  if(P.ride&&performance.now()-lastLook>1400)camYaw=lerpAngle(camYaw,P.ride.heading+Math.PI,dt*1.5);
+  if(P.ride&&!P.ride.drop&&performance.now()-lastLook>1400)camYaw=lerpAngle(camYaw,P.ride.heading+Math.PI,dt*1.5);
   const arm=armed();const sh=arm?(W.aiming?.7:.85):0;const shx=Math.cos(camYaw)*sh,shz=-Math.sin(camYaw)*sh;
   const ty=(v?(v.kind==='art'?v.deck+2.5:2):1.6)+(v&&v.kind==='art'?0:f.y)+(arm?.35:0);
   // pull the camera in when a tent, dome or car is between it and the player
   let dd=arm?(W.aiming?2.8:clamp(dist,5,6.5)):dist;const ux=Math.sin(camYaw)*Math.cos(camPitch),uz=Math.cos(camYaw)*Math.cos(camPitch),uy=Math.sin(camPitch);
   if((!v||v.kind==='bike')&&f.y<4&&!P.ride){for(let t=1.2;t<dist;t+=.5){const x=f.x+ux*t,z=f.z+uz*t,y=ty+uy*t;if(y>3.3)break;let hit=false;for(const o of obstaclesNear(x,z)){if(o.ramp)continue;if(Math.abs(x-o.x)>o.r+.3||Math.abs(z-o.z)>o.r+.3)continue;if((x-o.x)**2+(z-o.z)**2<(o.r+.3)**2){hit=true;break;}}if(hit){dd=Math.max(2.8,t-.6);break;}}}
   const cx=f.x+ux*dd+shx,cz=f.z+uz*dd+shz,cy=Math.max(.6,ty+uy*dd+(arm?0:(dist-dd)*.35));
-  camera.position.lerp(_v.set(cx,cy,cz),Math.min(1,dt*(arm?18:9)));
+  camera.position.lerp(_v.set(cx,cy,cz),P.ride&&P.ride.drop?1:Math.min(1,dt*(arm?18:9)));
   camera.lookAt(f.x+shx,ty,f.z+shz);
   if(W.shake>0){camera.rotation.x+=R(-1,1)*W.shake*.012;camera.rotation.y+=R(-1,1)*W.shake*.012;}
   const spd=P.sky?P.sky.vel.length()*.5:P.flying?P.fv.length()*.6:v?Math.abs(v.speed):Math.hypot(P.vel.x,P.vel.z);
@@ -3020,7 +3028,7 @@ function updateHUD(){
   const dt2=dreamText();$('#dream').hidden=!dt2;if(dt2)$('#dtext').textContent=dt2;
   const sd=$('#side');sd.hidden=!state.job;if(state.job){$('#stitle').textContent=JOB_INFO[state.job.id].title;$('#stext').textContent=jobText(state.job);}
   let msg='';
-  if(P.ride&&P.ride.drop){msg=touch.on?`Stick: fly · Jump when ready`:`<kbd>A</kbd><kbd>D</kbd>Turn <kbd>W</kbd><kbd>S</kbd>Climb/dive <kbd>Shift</kbd>Boost <kbd>Space</kbd>Jump`;}
+  if(P.ride&&P.ride.drop){msg=touch.on?`Stick: turn &amp; speed · drag to steer · Jump when ready`:`<kbd>Mouse</kbd>Steer (look down = dive) <kbd>A</kbd><kbd>D</kbd>Turn <kbd>W</kbd>Faster <kbd>S</kbd>Slower <kbd>Shift</kbd>Boost <kbd>Space</kbd>Jump`;}
   else if(P.ride)msg=P.ride.pos.y>220?'<kbd>Space</kbd>Jump!':'Climbing to jump altitude…';
   else if(P.sky)msg=P.sky.canopy?'<kbd>W</kbd>Glide where you look · <kbd>A</kbd><kbd>D</kbd>Turn · <kbd>S</kbd>Float':P.sky.vel.y>0?'Rocketing up…':'<kbd>W</kbd>Dive where you look · <kbd>Space</kbd>Open glider · <kbd>V</kbd>Spread your wings';
   else if(P.flying)msg='<kbd>Space</kbd>Rise · <kbd>C</kbd>Dive · <kbd>Shift</kbd>Blaze · <kbd>V</kbd>Land';
