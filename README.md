@@ -2,7 +2,7 @@
 
 An open-world browser game set at a desert arts festival. You play Phoenix, a fiery bird-person the Rangers are looking for.
 
-Every new week starts on a drop plane over the city. Jump, skydive, open your glider and land wherever you like. Pick up very artistic paint guns (unlimited ammo, nobody gets hurt), and stay one step ahead of the Dusty City Rangers by hiding in porta-potties, dancing in crowds and swapping costumes.
+Every new week starts on a drop plane you fly yourself. The first mission: land in the Stone Stadium next to the Man, where two teams of living stones (the Lava Rocks and the Granite Giants) play soccer with a huge stone ball. Run into the ball to join the match. Pick up very artistic paint guns (unlimited ammo, nobody gets hurt), and stay one step ahead of the Dusty City Rangers by hiding in porta-potties, dancing in crowds and swapping costumes.
 
 ![Before and after the overhaul](docs/before-after.jpg)
 
@@ -50,6 +50,7 @@ The stars at the top right are your wanted level, 0 to 5. Rangers see in a cone 
 | `fx.js` | The look: height fog with sun glow, rim light, sky with the Milky Way, color grade |
 | `weapons.js` | The ten artist guns, their projectiles, splats and sounds |
 | `props.js` | Drop plane, gliders, porta-potties, Ranger drones, towers, blimp and outpost, launch pads, closets, camp decor |
+| `stadium.js` | The Stone Stadium: stone colosseum, the stone soccer teams, the giant ball and the match |
 | `dali.js` | Surreal Dalí creatures and set pieces |
 | `masters.js` | Monet, Van Gogh, Picasso and Dalí art installations |
 | `artcars.js` | Art cars after Van Gogh, Monet, Picasso and Dalí |

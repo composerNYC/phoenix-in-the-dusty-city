@@ -8,7 +8,8 @@ import { UnrealBloomPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/exam
 import { OutputPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/OutputPass.js/+esm';
 import { ShaderPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/ShaderPass.js/+esm';
 import { mergeGeometries } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/utils/BufferGeometryUtils.js/+esm';
-import { installFX, FX, fxUniforms, fxWrapScene, SKY_FRAG, GRADE_FRAG } from './fx.js?v=6';
+import { installFX, FX, fxUniforms, fxWrapScene, SKY_FRAG, GRADE_FRAG } from './fx.js?v=7';
+import { buildStadium, FOOT as STAD_FOOT, PITCH as STAD_PITCH } from './stadium.js?v=7';
 installFX();
 
 const $ = s => document.querySelector(s);
@@ -36,9 +37,16 @@ const MAN=new THREE.Vector3(0,0,0);
 const TEMPLE=clockPos(12,190);
 const CAMP=clockPos(7.25,366);
 const CENTER=clockPos(6,286);
+// the Stone Stadium sits right next to the Man at 1:30, its long side facing him
+const STADIUM={pos:clockPos(1.6,112),rot:0,S:null};STADIUM.rot=Math.atan2(-STADIUM.pos.x,-STADIUM.pos.z);
+function stadLocal(x,z){const dx=x-STADIUM.pos.x,dz=z-STADIUM.pos.z,c=Math.cos(STADIUM.rot),s=Math.sin(STADIUM.rot);return{x:dx*c-dz*s,z:dx*s+dz*c};}
+function stadWorld(lx,lz){const c=Math.cos(STADIUM.rot),s=Math.sin(STADIUM.rot);return{x:STADIUM.pos.x+lx*c+lz*s,z:STADIUM.pos.z-lx*s+lz*c};}
+function stadFree(p,m){m=m||10;if(!inStadium(p,m))return p;const l=stadLocal(p.x,p.z);const ex=STAD_FOOT.hx+m-Math.abs(l.x),ez=STAD_FOOT.hz+m-Math.abs(l.z);if(ex<ez)l.x=Math.sign(l.x||1)*(STAD_FOOT.hx+m+2);else l.z=Math.sign(l.z||1)*(STAD_FOOT.hz+m+2);const w=stadWorld(l.x,l.z);p.x=w.x;p.z=w.z;return p;}
+function inStadium(p,m){const l=stadLocal(p.x,p.z);m=m||0;return Math.abs(l.x)<STAD_FOOT.hx+m&&Math.abs(l.z)<STAD_FOOT.hz+m;}
 function address(x,z){
   const r=Math.hypot(x,z),h=clockOf(x,z);
   if(r<32)return 'At the Man';
+  if(inStadium({x,z},-2))return 'The Stone Stadium';
   if(d2({x,z},TEMPLE)<30)return 'At the Temple';
   for(const c of soundCamps)if(d2({x,z},c.pos)<28)return cap(c.name)+' · '+fmtClock(h);
   const inArc=h>=1.85&&h<=10.15;
@@ -526,12 +534,13 @@ float gfbm(vec2 p){return gn(p)*.5+gn(p*2.1)*.3+gn(p*4.3)*.2;}`)
   for(let i=0;i<46;i++){
     let p,tries=0;
     do{const deep=rnd()<.35;const h=deep?R(-1.7,1.7):R(0,12);const r=deep?R(240,560):R(55,235);p=clockPos(h,r);tries++;}
-    while(tries<40&&(Math.abs(p.x)<14&&p.z<0&&p.z>-200||d2(p,TEMPLE)<40||artSpots.some(q=>d2(p,q)<30)));
+    while(tries<40&&(Math.abs(p.x)<14&&p.z<0&&p.z>-200||d2(p,TEMPLE)<40||inStadium(p,14)||artSpots.some(q=>d2(p,q)<30)));
     artSpots.push(p);const fn=ARTS[i%ARTS.length];const rr=R(0,TAU);place(fn(),p.x,p.z,rr);if(fn===artRing)portals.push({x:p.x,z:p.z,rot:rr,s:Math.sin(rr),c:Math.cos(rr)});
   }
   // trash fence
   for(let i=0;i<5;i++){const a=clockPos(i*2.4,FENCE_R),b=clockPos((i+1)*2.4,FENCE_R);const n=Math.floor(d2(a,b)/12);for(let j=0;j<n;j++){const t=j/n;staticRoot.add(M(G.box,mat(0x5a4632),.15,1.3,.15,lerp(a.x,b.x,t),.65,lerp(a.z,b.z,t)));}const len=d2(a,b);const f=M(G.box,mat(0x7a5a3a,{transparent:true,opacity:.55}),len,1.1,.04,(a.x+b.x)/2,.7,(a.z+b.z)/2);f.rotation.y=-Math.atan2(b.z-a.z,b.x-a.x);staticRoot.add(f);}
 
+  buildStoneStadium();
   buildMan();buildTemple();buildSoundCamps();buildRamps();buildAirport();
   bakeStatic(staticRoot);buildClouds();
 
@@ -666,7 +675,7 @@ function buildRangerTruck(){
 function buildVehicles(){
   addArt('fish',40,-80);addArt('galleon',-90,40);addArt('snail',110,60);addArt('octo',-60,-150);
   addBike(spawnPt.x+2.5,spawnPt.z+1,0);
-  for(let i=0;i<34;i++){let p;const r=rnd();if(r<.2)p=clockPos(R(0,12),R(19,24));else if(r<.3)p=CENTER.clone().add(new THREE.Vector3(R(-25,25),0,R(-25,25)));else if(r<.4)p=TEMPLE.clone().add(new THREE.Vector3(R(-22,22),0,R(-22,22)));else p=clockPos(R(2,10),pick(STREETS)[1]+R(-5,5));addBike(p.x,p.z,R(0,TAU));}
+  for(let i=0;i<34;i++){let p;const r=rnd();if(r<.2)p=stadFree(clockPos(R(0,12),R(19,24)));else if(r<.3)p=CENTER.clone().add(new THREE.Vector3(R(-25,25),0,R(-25,25)));else if(r<.4)p=TEMPLE.clone().add(new THREE.Vector3(R(-22,22),0,R(-22,22)));else p=clockPos(R(2,10),pick(STREETS)[1]+R(-5,5));addBike(p.x,p.z,R(0,TAU));}
   ranger={g:buildRangerTruck(),active:false,leaving:0,heading:0,speed:0};
   ranger.pos=ranger.g.position;ranger.g.visible=false;scene.add(ranger.g);
 }
@@ -681,7 +690,7 @@ function buildPeople(){
     const p=makeCharacter({});
     let home,sitter=false;
     if(i>=4&&i<26&&camSitters.length){home=camSitters[i%camSitters.length].clone().add(new THREE.Vector3(R(-2,2),0,R(-2,2)));sitter=true;}
-    else home=rnd()<.7?blockSpot():clockPos(R(0,12),R(40,230));
+    else home=rnd()<.7?blockSpot():stadFree(clockPos(R(0,12),R(40,230)));
     p.g.position.copy(home);p.g.rotation.y=R(0,TAU);scene.add(p.g);
     npcs.push({p,pos:p.g.position,home:home.clone(),target:home.clone(),speed:R(1.1,1.8),wait:R(0,4),name:NAMES[i%NAMES.length],wants:false,sprite:null,happy:0,sitter,skip:0});
   }
@@ -709,7 +718,7 @@ function buildPickups(){
   for(let i=0;i<34;i++)add('gift');
   pickups[0].g.position.copy(clockPos(6.45,460)).setY(1.1);pickups[1].g.position.copy(clockPos(6.2,448)).setY(1.1);
 }
-function respot(pk){let p;const r=rnd();if(r<.55)p=clockPos(R(2,10),pick(STREETS)[1]+R(-3,3));else if(r<.7)p=clockPos(R(5.8,7.2),R(440,470));else p=clockPos(R(0,12),R(40,240));collide(p,.8);p.y=1.1;pk.g.position.copy(p);pk.g.visible=true;pk.active=true;}
+function respot(pk){let p;const r=rnd();if(r<.55)p=clockPos(R(2,10),pick(STREETS)[1]+R(-3,3));else if(r<.7)p=clockPos(R(5.8,7.2),R(440,470));else p=stadFree(clockPos(R(0,12),R(40,240)));collide(p,.8);p.y=1.1;pk.g.position.copy(p);pk.g.visible=true;pk.active=true;}
 
 // ================= particles =================
 function makeFire(cx,cz,radius,height,count){
@@ -912,6 +921,9 @@ function toggleMap(){state.mapOpen=!state.mapOpen;$('#mm').classList.toggle('big
 // ================= quests =================
 function timeUntil(t){const h=t-state.time;if(h<=0)return'now';const hh=Math.floor(h),mm=Math.floor((h-hh)*60);return(hh?hh+'h ':'')+mm+'m';}
 const QUESTS=[
+  {title:'Land in the Stone Stadium',text:()=>P.ride&&P.ride.drop?'The Stone Cup is on, right next to the Man! Fly the plane over the stone stadium (follow the beacon), jump with Space and land on the pitch.':P.sky?'Steer into the stadium and land on the pitch!':'Missed the stadium? Press B to call the drop plane and try again, or just walk in through a corner gate.',
+    target:()=>STADIUM.pos,done:()=>state.stadiumLanded||(!P.sky&&!P.ride&&!P.flying&&P.onGround&&STADIUM.S&&(()=>{const l=stadLocal(P.pos.x,P.pos.z);return STADIUM.S.inBowl(l.x,l.z);})()),
+    reward(){addKarma(25);toast('Welcome to the Stone Cup! The Lava Rocks and the Granite Giants are mid-match. Run into the ball to join in.');}},
   {title:'Find your camp',text:()=>'Welcome home, Phoenix. Camp Lost Unicorn is at 7:15 & Dune, look for the rainbow. Follow the cyan beacon.',target:()=>CAMP,done:()=>d2(focusPos(),CAMP)<16,
     reward(){addKarma(15);state.goggles=true;toast('"Phoenix! You made it!" Your campmates hand you a pair of dust goggles.');}},
   {title:'Gift economy',text:()=>`Give 3 gifts to burners with a pink gift bubble (${Math.min(state.given,3)}/3). Glowing boxes on the playa are free for the taking.`,
@@ -960,12 +972,12 @@ function applySettings(){
 }
 function saveGame(){
   if(!state.started)return;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,time:state.time,quest:state.quest,gifts:state.gifts,given:state.given,goggles:state.goggles,wanted:state.wanted,weapons:state.weapons,weapon:state.weapon,landed:state.landed!==false,glider:state.glider,gliders:state.gliders,sawMan:state.sawMan,sawTemple:state.sawTemple,karma:state.karma,outfit:state.outfit,stats:state.stats,jobsDone:state.jobsDone,lampDay:state.lampDay,dream:{stage:state.dream.stage,got:dali.clocks.filter(c=>c.got).map(c=>c.i)},meltPower:state.meltPower,gallery:state.gallery,unlocks:state.unlocks,x:P.pos.x,z:P.pos.z,heading:P.heading}));}catch(_){}
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,qv:2,time:state.time,quest:state.quest,gifts:state.gifts,given:state.given,goggles:state.goggles,wanted:state.wanted,weapons:state.weapons,weapon:state.weapon,landed:state.landed!==false,glider:state.glider,gliders:state.gliders,sawMan:state.sawMan,sawTemple:state.sawTemple,karma:state.karma,outfit:state.outfit,stats:state.stats,jobsDone:state.jobsDone,lampDay:state.lampDay,dream:{stage:state.dream.stage,got:dali.clocks.filter(c=>c.got).map(c=>c.i)},meltPower:state.meltPower,gallery:state.gallery,unlocks:state.unlocks,x:P.pos.x,z:P.pos.z,heading:P.heading}));}catch(_){}
 }
 function loadSave(){try{const d=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');return d&&d.v===1?d:null;}catch(_){return null;}}
 function clearSave(){try{localStorage.removeItem(SAVE_KEY);}catch(_){}}
 function applySave(d){state.landed=d.landed!==false;
-  Object.assign(state,{time:d.time,quest:d.quest||0,gifts:d.gifts||[],given:d.given||0,goggles:!!d.goggles,wanted:d.wanted||0,weapons:d.weapons||[],weapon:d.weapon||null,glider:d.glider||'parachute',gliders:d.gliders||['parachute'],sawMan:!!d.sawMan,sawTemple:!!d.sawTemple,karma:d.karma||0,lampDay:d.lampDay??-1});
+  Object.assign(state,{time:d.time,quest:(d.quest||0)+(d.qv>=2?0:1),gifts:d.gifts||[],given:d.given||0,goggles:!!d.goggles,wanted:d.wanted||0,weapons:d.weapons||[],weapon:d.weapon||null,glider:d.glider||'parachute',gliders:d.gliders||['parachute'],sawMan:!!d.sawMan,sawTemple:!!d.sawTemple,karma:d.karma||0,lampDay:d.lampDay??-1});
   Object.assign(state.stats,d.stats||{});state.meltPower=!!d.meltPower;if(d.gallery)state.gallery=d.gallery;if(d.unlocks)state.unlocks=d.unlocks;if(d.dream){state.dream.stage=d.dream.stage||0;for(const c of dali.clocks)if((d.dream.got||[]).includes(c.i)){c.got=true;if(c.b.clock)c.b.clock.visible=false;}}Object.assign(state.jobsDone,d.jobsDone||{});
   state.manBurnt=state.time>=MB;state.templeBurnt=state.time>=TB;state.nextStorm=state.time+R(1.5,4);
   if(typeof d.x==='number'){P.pos.set(d.x,0,d.z);P.heading=d.heading||0;}
@@ -1197,7 +1209,7 @@ function startJob(id){
 }
 function newFare(J){
   const c=J.car;let p,tries=0;
-  do{p=rnd()<.5?clockPos(R(0,12),R(60,240)):clockPos(R(2.2,9.8),pick(STREETS)[1]);tries++;}while(tries<60&&(d2(p,c.pos)<70||d2(p,c.pos)>240));
+  do{p=rnd()<.5?stadFree(clockPos(R(0,12),R(60,240))):clockPos(R(2.2,9.8),pick(STREETS)[1]);tries++;}while(tries<60&&(d2(p,c.pos)<70||d2(p,c.pos)>240));
   J.pick=p;J.stage='pickup';
   J.pass=makeCharacter({});J.pass.g.position.copy(p);J.pass.g.rotation.y=Math.atan2(c.pos.x-p.x,c.pos.z-p.z);scene.add(J.pass.g);
   toast(`Fare ${J.fares+1} of 3: someone is waving at ${address(p.x,p.z)}.`);
@@ -1753,7 +1765,7 @@ const SURREAL_LINES={
   fishhead:['I am not lost. The ocean is.','Glub. That means hello.','Have you seen my bicycle? It swims.'],
   burningcoat:['I am not on fire. I am on inspiration.','Warm, isn’t it?','Sit by me, I’m cozy.'],
 };
-const CLOCK_SPOTS=[[1.3,140,'tree'],[10.6,120,'plinth'],[3.0,235,'tree'],[9.0,235,'plinth'],[6.0,232,'tree'],[12.5,360,'tree'],[4.9,205,'plinth']];
+const CLOCK_SPOTS=[[1.1,205,'tree'],[10.6,120,'plinth'],[3.0,235,'tree'],[9.0,235,'plinth'],[6.0,232,'tree'],[12.5,360,'tree'],[4.9,205,'plinth']];
 function placeDyn(b,x,z,rot){b.g.position.set(x,0,z);b.g.rotation.y=rot||0;scene.add(b.g);dali.all.push(b);return b;}
 function buildDali(){
   if(!D)return;
@@ -1778,7 +1790,7 @@ function buildDali(){
   for(let i=0;i<7;i++){const b=T(D.buildMustacheSpirit);if(!b)continue;placeDyn(b,0,20,0);b.fly={a:R(0,TAU),r:R(120,420),h:R(14,34),sp:R(.03,.07)*(rnd()<.5?1:-1),wob:R(0,TAU)};dali.spirits.push(b);}
   // surreal walkers mingle with the crowd
   const types=D.SURREAL_TYPES||Object.keys(SURREAL_LINES);
-  for(let i=0;i<26;i++){const type=types[i%types.length];const b=T(D.buildSurrealWalker,type);if(!b)continue;const p=rnd()<.6?blockSpot():clockPos(R(0,12),R(60,240));placeDyn(b,p.x,p.z,R(0,TAU));b.walk={type,target:p.clone(),wait:R(0,6),speed:type==='stilts'?1.6:R(.9,1.4),talked:false};b.pos=b.g.position;dali.walkers.push(b);}
+  for(let i=0;i<26;i++){const type=types[i%types.length];const b=T(D.buildSurrealWalker,type);if(!b)continue;const p=rnd()<.6?blockSpot():stadFree(clockPos(R(0,12),R(60,240)));placeDyn(b,p.x,p.z,R(0,TAU));b.walk={type,target:p.clone(),wait:R(0,6),speed:type==='stilts'?1.6:R(.9,1.4),talked:false};b.pos=b.g.position;dali.walkers.push(b);}
 }
 function dreamCtx(speed){return {night,playerPos:P.pos,speed};}
 const _dv=new THREE.Vector3();
@@ -1790,7 +1802,7 @@ function updateDali(dt){
   for(const b of dali.eyes){if(d2(b.g.position,f)<260)b.update&&b.update(dt,t,dreamCtx(0));}
   for(const w of dali.walkers){const g=w.g,W=w.walk;const d=d2(g.position,f);g.visible=d<Math.min(VIEW,150);let sp=0;
     if(W.wait>0){W.wait-=dt;if(d<10)g.rotation.y=lerpAngle(g.rotation.y,Math.atan2(f.x-g.position.x,f.z-g.position.z),dt*2);}
-    else{const dx=W.target.x-g.position.x,dz=W.target.z-g.position.z,dd=Math.hypot(dx,dz);if(dd<1){W.wait=R(3,12);W.target=rnd()<.6?blockSpot():clockPos(R(0,12),R(60,240));}else{sp=W.speed;g.position.x+=dx/dd*sp*dt;g.position.z+=dz/dd*sp*dt;g.rotation.y=lerpAngle(g.rotation.y,Math.atan2(dx,dz),dt*3);if((frameNo+dali.walkers.indexOf(w))%4===0)collide(g.position,.5);}}
+    else{const dx=W.target.x-g.position.x,dz=W.target.z-g.position.z,dd=Math.hypot(dx,dz);if(dd<1){W.wait=R(3,12);W.target=rnd()<.6?blockSpot():stadFree(clockPos(R(0,12),R(60,240)));}else{sp=W.speed;g.position.x+=dx/dd*sp*dt;g.position.z+=dz/dd*sp*dt;g.rotation.y=lerpAngle(g.rotation.y,Math.atan2(dx,dz),dt*3);if((frameNo+dali.walkers.indexOf(w))%4===0)collide(g.position,.5);}}
     if(g.visible&&d<110)w.update&&w.update(dt,t,dreamCtx(sp));}
   for(const b of dali.all){if(b.update&&!dali.elephants.includes(b)&&!dali.giraffes.includes(b)&&!dali.spirits.includes(b)&&!dali.eyes.includes(b)&&!dali.walkers.includes(b)){const gp=b.g.getWorldPosition(_dv);if(d2(gp,f)<220)b.update(dt,t,dreamCtx(0));}}
   // dynamic collision circles follow the giants' feet
@@ -1972,9 +1984,12 @@ function updateSkydive(dt,inp){
   const S=P.sky,v=S.vel;S.t+=dt;const gh=groundHeight(P.pos.x,P.pos.z);const agl=P.pos.y-gh;S.top=Math.max(S.top,P.pos.y);
   const turn=(inp.left?1:0)-(inp.right?1:0)-touch.jx;
   const look=camYaw+Math.PI;const steer=inp.fwd||touch.jy<-.5;
+  // first mission: hands off the controls and the skydive drifts toward the Stone Stadium
+  let asH=null,asD=0;if(state.quest===0&&STADIUM.S&&!steer&&!turn&&!inp.back){const dx=STADIUM.pos.x-P.pos.x,dz=STADIUM.pos.z-P.pos.z;asD=Math.hypot(dx,dz);if(asD<420&&asD>2)asH=Math.atan2(dx,dz);}
   if(!S.canopy){
+    if(asH!==null)S.heading=lerpAngle(S.heading,asH,Math.min(1,dt*2));
     if(steer)S.heading=lerpAngle(S.heading,look,Math.min(1,dt*2.2));
-    S.heading+=turn*1.5*dt;const dive=steer&&camPitch>.55;const track=steer?(dive?16:30):inp.back?-4:4;const term=dive?82:steer?58:52;
+    S.heading+=turn*1.5*dt;const dive=steer&&camPitch>.55;const track=steer?(dive?16:30):inp.back?-4:asH!==null?clamp(asD*.35,0,30):4;const term=dive?82:steer?58:52;
     v.y-=9.8*dt;if(v.y<-term)v.y=lerp(v.y,-term,Math.min(1,dt*2));
     v.x=lerp(v.x,Math.sin(S.heading)*track,Math.min(1,dt*.9));v.z=lerp(v.z,Math.cos(S.heading)*track,Math.min(1,dt*.9));
     player.g.rotation.order='YXZ';player.g.rotation.y=S.heading;
@@ -1983,8 +1998,8 @@ function updateSkydive(dt,inp){
     const rising=v.y>0;
     if(!rising&&((inp.jumpEdge&&agl>25)||agl<110))openChute();
   }else{
-    if(steer)S.heading=lerpAngle(S.heading,look,Math.min(1,dt*1.2));
-    S.heading+=turn*1.1*dt;const glide=steer?15:inp.back?4:10,desc=steer?7.5:inp.back?2.4:4.8;
+    if(steer)S.heading=lerpAngle(S.heading,look,Math.min(1,dt*1.2));else if(asH!==null)S.heading=lerpAngle(S.heading,asH,Math.min(1,dt*1.5));
+    S.heading+=turn*1.1*dt;const glide=steer?15:inp.back?4:asH!==null?clamp(asD*.3,0,15):10,desc=steer?7.5:inp.back?2.4:4.8;
     v.x=lerp(v.x,Math.sin(S.heading)*glide,Math.min(1,dt*1.2));v.z=lerp(v.z,Math.cos(S.heading)*glide,Math.min(1,dt*1.2));v.y=lerp(v.y,-desc,Math.min(1,dt*1.5));
     player.g.rotation.y=S.heading;player.g.rotation.x=lerp(player.g.rotation.x,.08,Math.min(1,dt*3));player.g.rotation.z=lerp(player.g.rotation.z,-turn*.25,dt*2);
     S.canopy.position.set(P.pos.x,P.pos.y+1.75,P.pos.z);S.canopy.rotation.set(Math.sin(S.t*1.3)*.05,S.heading,-turn*.3);
@@ -1999,6 +2014,36 @@ function openChute(){const S=P.sky;if(S.canopy)return;
   if(PR&&PR.buildGlider){const gl=PR.buildGlider(kind);shadowAll(gl.g);S.canopy=new THREE.Group();S.canopy.add(gl.g);S.gl=gl;}
   else S.canopy=makeCanopy();
   scene.add(S.canopy);S.freefall=S.t;S.vel.y*=.25;sfx.whoosh(0);floatText(kind==='parachute'?'Canopy open':'Glider out');}
+// ================= the Stone Stadium =================
+const stadDyn=[];
+function buildStoneStadium(){
+  let S;try{S=buildStadium({neon,glowMap,
+    onKick(power,lp){const w=stadWorld(lp.x,lp.z);const d=d2(w,P.pos);if(d>90||!audio.ctx)return;const v=Math.min(.32,power*.4)*(1-d/90);sfx.tone(55+R(0,25),.22,'triangle',v);sfx.tone(110+R(0,30),.08,'square',v*.25);},
+    onPlayerKick(power){sfx.tone(70,.22,'triangle',.3);sfx.tone(150,.1,'square',.08);},
+    onGoal(e){const near=d2(P.pos,STADIUM.pos)<160;if(near){toast(e.byPhoenix?`GOAL by PHOENIX for the ${e.team.name}! ${e.score[0]} : ${e.score[1]}`:`GOAL! ${e.scorer} scores for the ${e.team.name}. ${e.score[0]} : ${e.score[1]}`);sfx.chime();for(let i=0;i<6;i++)setTimeout(()=>sfx.tone(392+i*98,.3,'sawtooth',.06),i*90);}
+      if(e.byPhoenix){addKarma(15,'stone cup goal');stuntText('GOOOAL!','Phoenix scores in the Stone Cup');}},
+  });}catch(e){console.warn('stadium failed',e);return;}
+  S.root.position.set(STADIUM.pos.x,0,STADIUM.pos.z);S.root.rotation.y=STADIUM.rot;scene.add(S.root);
+  const c=Math.cos(STADIUM.rot),sn=Math.sin(STADIUM.rot);
+  for(const [lx,lz,r] of S.obstacles)obstacles.push({x:STADIUM.pos.x+lx*c+lz*sn,z:STADIUM.pos.z-lx*sn+lz*c,r,stadium:true});
+  // players + ball push Phoenix around (they move, so they live in dynObs with a proxy object)
+  const mk=(r)=>{const o={x:0,z:0,r,lx:0,lz:0,b:{g:{position:new THREE.Vector3(),rotation:{y:0}}}};dynObs.push(o);stadDyn.push(o);return o;};
+  for(const p of S.players)p.obs=mk(.95*p.scale);S.ball.obs=mk(1.5);
+  STADIUM.S=S;
+}
+let stadAcc=0;
+function updateStadium(dt){
+  const S=STADIUM.S;if(!S)return;
+  const d=d2(focusPos(),STADIUM.pos);const near=d<420||(P.ride&&P.ride.drop)||P.sky;
+  S.root.visible=d<1400;
+  if(!near){stadAcc+=dt;if(stadAcc<.25)return;dt=stadAcc;stadAcc=0;}
+  const l=stadLocal(P.pos.x,P.pos.z);const c=Math.cos(STADIUM.rot),sn=Math.sin(STADIUM.rot);
+  const onFoot=!P.vehicle&&!P.sky&&!P.ride&&!P.flying&&!P.hidden&&P.pos.y<1.5&&S.inPitch(l.x,l.z,3);
+  const lvx=P.vel.x*c-P.vel.z*sn,lvz=P.vel.x*sn+P.vel.z*c;
+  S.update(dt,{t:performance.now()*.001,night,near,player:{x:l.x,z:l.z,vx:lvx,vz:lvz,onFoot}});
+  for(const p of S.players){const w=stadWorld(p.pos.x,p.pos.z);p.obs.b.g.position.set(w.x,0,w.z);p.obs.x=w.x;p.obs.z=w.z;}
+  {const w=stadWorld(S.ball.p.x,S.ball.p.z);S.ball.obs.b.g.position.set(w.x,0,w.z);S.ball.obs.x=w.x;S.ball.obs.z=w.z;}
+}
 function landSkydive(){
   const S=P.sky;P.sky=null;if(S.canopy)setTimeout(()=>scene.remove(S.canopy),2500),S.canopy.position.y=P.pos.y+.2,S.canopy.rotation.x=1.3;
   P.pos.y=groundHeight(P.pos.x,P.pos.z);P.vy=0;P.onGround=true;P.vel.set(0,0,0);player.g.rotation.x=0;player.g.rotation.z=0;oneShot(player,'Jump_Land',.6);
@@ -2007,6 +2052,7 @@ function landSkydive(){
   state.stats.skydives=(state.stats.skydives||0)+1;
   if(S.drop)onDropLanded(S.first);
   unlockGlider();
+  if(STADIUM.S){const l=stadLocal(P.pos.x,P.pos.z);if(STADIUM.S.inBowl(l.x,l.z)){state.stadiumLanded=true;STADIUM.S.excitePhoenix();const onPitch=STADIUM.S.inPitch(l.x,l.z);stuntText(onPitch?'Pitch landing!':'Stadium landing!',onPitch?'The stones go wild. Run into the ball to play.':'You made it into the Stone Cup.');addKarma(onPitch?20:10,'stadium landing');for(let i=0;i<4;i++)setTimeout(()=>sfx.tone(520+i*130,.25,'triangle',.1),i*110);for(let i=0;i<10;i++)emitPuff(P.pos.x+R(-1.5,1.5),P.pos.z+R(-1.5,1.5),1.2,.35);return;}}
   if(!S.canopy){stuntText('Phoenix rises','No parachute? No problem. Ashes to wings.');for(let k=0;k<3;k++)setTimeout(()=>{for(const pv of[P.pos])for(let i=0;i<40;i++)emitTrail(pv.x+R(-2,2),pv.y+R(0,3),pv.z+R(-2,2),2);},k*120);addKarma(5,'skydive');return;}
   if(dMan<45){stuntText('Bullseye on the Man',`${ff}s of freefall from ${Math.round(S.top)} m`);addKarma(30,'bullseye landing');}
   else if(dCamp<25){stuntText('Landed at camp',`${ff}s of freefall. Your campmates applaud.`);addKarma(20,'home landing');}
@@ -2064,7 +2110,7 @@ function updateMotes(dt){
 }
 // ================= THE DROP: every new week starts in the sky =================
 let PR=null;
-async function loadProps(){try{PR=await import('./props.js?v=6');if(PR.initProps)PR.initProps({neon,mat,glowMap});}catch(e){console.warn('props.js failed to load',e);PR=null;}}
+async function loadProps(){try{PR=await import('./props.js?v=7');if(PR.initProps)PR.initProps({neon,mat,glowMap});}catch(e){console.warn('props.js failed to load',e);PR=null;}}
 const drop={active:null,plane:null,leaving:null};
 const _dd=new THREE.Vector3(),_plV=new THREE.Vector3();
 function dropPlaneModel(){
@@ -2086,7 +2132,8 @@ function startDrop(first){
   const pl=dropPlaneModel();
   const a=R(0,TAU),off=R(-220,220);
   const dir=new THREE.Vector3(Math.cos(a),0,Math.sin(a)),side=new THREE.Vector3(-dir.z,0,dir.x);
-  const start=side.clone().multiplyScalar(off).addScaledVector(dir,-650);start.y=first?300:280;
+  const toStad=state.quest===0;
+  const start=toStad?new THREE.Vector3(STADIUM.pos.x,0,STADIUM.pos.z).addScaledVector(dir,-1400):side.clone().multiplyScalar(off).addScaledVector(dir,-650);start.y=first?300:280;
   const D={t:0,dir,side,start:start.clone(),pos:start.clone(),speed:110,vy:0,bank:0,heading:Math.atan2(dir.x,dir.z),first,len:2500,divers:0,nextDiver:2};
   drop.active=D;drop.leaving=null;
   pl.g.visible=true;pl.g.position.copy(start);pl.g.rotation.set(0,D.heading,0);
@@ -2192,7 +2239,7 @@ function launchUp(){
 
 // ================= ARMED: artsy guns, unlimited ammo, nobody gets hurt =================
 let WP=null;
-async function loadWeapons(){try{WP=await import('./weapons.js?v=6');if(WP.initWeapons)WP.initWeapons({glowMap});}catch(e){console.warn('weapons.js failed to load',e);WP=null;}}
+async function loadWeapons(){try{WP=await import('./weapons.js?v=7');if(WP.initWeapons)WP.initWeapons({glowMap});}catch(e){console.warn('weapons.js failed to load',e);WP=null;}}
 const W={sys:null,guns:{},gun:null,def:null,heat:0,over:false,aiming:false,zoom:1,shake:0,nextShot:0,beamOn:false,hitT:0,spin:0,pickups:[]};
 const mouse={l:false,r:false};
 const WDEF=id=>WP&&WP.WEAPONS.find(w=>w.id===id);
@@ -2530,8 +2577,8 @@ function useRack(k){
 function unlockGlider(){const order=['parachute','phoenix','butterfly','balloon'];state.gliders=state.gliders||['parachute'];const next=order.find(x=>!state.gliders.includes(x));const n=state.stats.skydives||0;if(next&&n>=order.indexOf(next)*2-1){state.gliders.push(next);state.glider=next;const gl=PR&&PR.GLIDERS&&PR.GLIDERS.find(x=>x.id===next);setTimeout(()=>stuntText('New glider: '+(gl?gl.name:next),'Equipped. Change it in the phone wardrobe (Tab).'),2600);}}
 function onDropLanded(first){state.landed=true;
   RG.grace=first?50:20;for(const r of RG.list){if(d2(r.pos,P.pos)<70&&r.st!=='chase'){r.pos.copy(rangerSpawnPoint(90,170));newPatrol(r);}}
-  if(WP&&!state.weapons.includes(WP.START_WEAPON)){setTimeout(()=>giveWeapon(WP.START_WEAPON),900);}
-  if(first)setTimeout(()=>toast('Welcome home, Phoenix. Word is the Rangers are looking for a fiery bird-person. Keep your head down, find your camp, and press B any time to call the drop plane back.'),3200);
+  if(WP&&!state.weapons.includes(WP.START_WEAPON)){setTimeout(()=>giveWeapon(WP.START_WEAPON),3800);}
+  if(first)setTimeout(()=>toast('Welcome home, Phoenix. Word is the Rangers are looking for a fiery bird-person. Keep your head down and press B any time to call the drop plane back.'),3200);
 }
 // ================= ambient skydivers =================
 const ambientSky={plane:null,t:25,active:null,divers:[]};
@@ -2552,7 +2599,7 @@ function updateAmbientSky(dt){
   }
 }
 function spawnDiver(pos,head){const c=makeCharacter({});c.g.position.set(pos.x+R(-2,2),pos.y-2,pos.z+R(-2,2));c.g.rotation.order='YXZ';c.g.rotation.set(1.45,head,0);scene.add(c.g);
-  const target=clockPos(R(0,12),R(40,230));ambientSky.divers.push({c,v:new THREE.Vector3(Math.sin(head)*20,-3,Math.cos(head)*20),t:0,canopy:null,target,landed:0,near:false,flare:night>.4?pick(FLARE_COLS):null});}
+  const target=stadFree(clockPos(R(0,12),R(40,230)));ambientSky.divers.push({c,v:new THREE.Vector3(Math.sin(head)*20,-3,Math.cos(head)*20),t:0,canopy:null,target,landed:0,near:false,flare:night>.4?pick(FLARE_COLS):null});}
 
 // ================= the masters: Monet, Van Gogh, Picasso, Dalí =================
 let MS=null,AC=null,AC2=null;
@@ -2585,7 +2632,7 @@ const PIECE_NOTES={
 };
 function buildMasters(){
   if(!MS||!MS.MASTER_PIECES)return;
-  const occ=[{x:0,z:0,r:48},{x:TEMPLE.x,z:TEMPLE.z,r:40},{x:parkPos.x,z:parkPos.z,r:60}];
+  const occ=[{x:0,z:0,r:48},{x:STADIUM.pos.x,z:STADIUM.pos.z,r:66},{x:TEMPLE.x,z:TEMPLE.z,r:40},{x:parkPos.x,z:parkPos.z,r:60}];
   for(const a of artSpots)occ.push({x:a.x,z:a.z,r:9});
   for(const c of soundCamps)occ.push({x:c.pos.x,z:c.pos.z,r:30});
   for(const r of ramps)occ.push({x:r.cx,z:r.cz,r:r.rad});
@@ -2752,7 +2799,7 @@ function envUpdate(dt){
   const day=clamp(elev*3+.35,0,1);night=1-day;
   const dusk=clamp(1-Math.abs(elev+.02)*4.5,0,1);
   if(state.started){
-    if(state.time>=state.nextStorm&&state.dustTarget===0){state.dustTarget=1;state.stormEnd=state.time+R(.5,.9);if(!state.job&&state.quest>=1)setTimeout(()=>{if(!state.job&&state.dust>.3)startJob('rescue');},9000);toast(state.goggles?'Dust storm rolling in. Goggles on.':'Whiteout! A dust storm is rolling in. You need goggles.');}
+    if(state.time>=state.nextStorm&&state.dustTarget===0){state.dustTarget=1;state.stormEnd=state.time+R(.5,.9);if(!state.job&&state.quest>=2)setTimeout(()=>{if(!state.job&&state.dust>.3)startJob('rescue');},9000);toast(state.goggles?'Dust storm rolling in. Goggles on.':'Whiteout! A dust storm is rolling in. You need goggles.');}
     if(state.dustTarget===1&&state.time>=state.stormEnd){state.dustTarget=0;state.nextStorm=state.time+R(4,9);}
   }
   state.dust+=(state.dustTarget-state.dust)*Math.min(1,dt*.35);const dust=state.dust;
@@ -2851,7 +2898,7 @@ function update(dt,rdt){rdt=rdt||dt;
   }
   if(speeding){setWanted(state.wanted+dt*.33);RG.lastSeen.copy(focusPos());RG.seenT=0;}
   updateRanger(dt);updateManhunt(dt);updateArms(dt);
-  updateArtCars(dt);updateNPCs(dt);updateCyclists(dt);updatePickups(dt);updateBurns(dt);updateFireworks(dt);updateDust(dt);updatePoofs(dt);updateJob(dt);updateLamps();updateSoundCamps(dt);updateDevils(dt);updatePuffs(dt);updateChatter(dt);updateCrowd(dt);crowdEvents();updateDali(dt);updateAmbientSky(dt);updatePlaneAuto(dt);updateDropPlane(dt);updateDropFx(dt);updatePads(dt);updateMotes(dt);updateTrail(dt);updateMasters(dt);{const tt=performance.now()*.001;updateLaserField(tt);updateFlares(tt);}updateSkyFlares(dt);updateLightPool();
+  updateArtCars(dt);updateNPCs(dt);updateCyclists(dt);updatePickups(dt);updateBurns(dt);updateFireworks(dt);updateDust(dt);updatePoofs(dt);updateJob(dt);updateLamps();updateSoundCamps(dt);updateDevils(dt);updatePuffs(dt);updateChatter(dt);updateCrowd(dt);crowdEvents();updateDali(dt);updateStadium(dt);updateAmbientSky(dt);updatePlaneAuto(dt);updateDropPlane(dt);updateDropFx(dt);updatePads(dt);updateMotes(dt);updateTrail(dt);updateMasters(dt);{const tt=performance.now()*.001;updateLaserField(tt);updateFlares(tt);}updateSkyFlares(dt);updateLightPool();
   updateQuest();
   const tgt=QUESTS[state.quest]&&QUESTS[state.quest].target();
   beacon.visible=!!tgt;if(tgt){beacon.position.x=tgt.x;beacon.position.z=tgt.z;}
@@ -2921,8 +2968,8 @@ function updateArtCars(dt){
     if(v.driven)continue;
     if(v.wait>0){v.wait-=dt;v.speed*=Math.pow(.3,dt);}
     else{
-      if(!v.target||d2(v.pos,v.target)<12){const r=rnd();v.target=r<.55?clockPos(R(0,12),R(50,250)):r<.8?clockPos(R(10.3,13.7),R(260,520)):clockPos(R(2,10),R(246,252));}
-      const want=Math.atan2(v.target.x-v.pos.x,v.target.z-v.pos.z);v.heading=lerpAngle(v.heading,want,Math.min(1,dt*.5));v.speed=lerp(v.speed,4.5,dt);
+      if(!v.target||d2(v.pos,v.target)<12||inStadium(v.target,12)){const r=rnd();v.target=r<.55?stadFree(clockPos(R(0,12),R(50,250))):r<.8?clockPos(R(10.3,13.7),R(260,520)):stadFree(clockPos(R(2,10),R(246,252)));}
+      let want=Math.atan2(v.target.x-v.pos.x,v.target.z-v.pos.z);if(inStadium(v.pos,14)){want=Math.atan2(v.pos.x-STADIUM.pos.x,v.pos.z-STADIUM.pos.z);if(inStadium(v.target,12))v.target=null;}v.heading=lerpAngle(v.heading,want,Math.min(1,dt*(inStadium(v.pos,14)?1.2:.5)));v.speed=lerp(v.speed,4.5,dt);
     }
     v.pos.x+=Math.sin(v.heading)*v.speed*dt;v.pos.z+=Math.cos(v.heading)*v.speed*dt;
     if(collide(v.pos,v.r*.8))v.target=null;
@@ -3028,7 +3075,7 @@ function updateHUD(){
   $('#clock').textContent=fmtTime(state.time);
   const f=focusPos();$('#where').textContent=address(f.x,f.z);
   const q=QUESTS[state.quest];
-  $('#qstep').textContent=state.quest<5?`Objective ${state.quest+1} of 5`:'Free roam';
+  $('#qstep').textContent=state.quest<6?`Objective ${state.quest+1} of 6`:'Free roam';
   $('#qtitle').textContent=q.title;$('#qtext').textContent=q.text();
   const stars=Math.floor(state.wanted||0);
   [...$('#badges').children].forEach((el,i)=>el.classList.toggle('on',i<stars));
@@ -3039,7 +3086,8 @@ function updateHUD(){
   const dt2=dreamText();$('#dream').hidden=!dt2;if(dt2)$('#dtext').textContent=dt2;
   const sd=$('#side');sd.hidden=!state.job;if(state.job){$('#stitle').textContent=JOB_INFO[state.job.id].title;$('#stext').textContent=jobText(state.job);}
   let msg='';
-  if(P.ride&&P.ride.drop){msg=touch.on?`Stick: turn &amp; speed · drag to steer · Jump when ready`:`<kbd>A</kbd><kbd>D</kbd>/<kbd>Mouse</kbd>Steer <kbd>Mouse ↑</kbd>Dive <kbd>↓</kbd>Climb <kbd>W</kbd>Faster <kbd>S</kbd>Slower <kbd>Shift</kbd>Boost <kbd>Space</kbd>Jump`;}
+  if(P.ride&&P.ride.drop&&state.quest===0&&drop.active){const D=drop.active;const dd=Math.hypot(STADIUM.pos.x-D.pos.x,STADIUM.pos.z-D.pos.z);const ahead=(STADIUM.pos.x-D.pos.x)*D.dir.x+(STADIUM.pos.z-D.pos.z)*D.dir.z>0;msg=dd<130?`<kbd>Space</kbd>JUMP NOW, you're over the Stone Stadium!`:`Stone Stadium ${Math.round(dd)} m ${ahead?'ahead':'behind you'} · <kbd>A</kbd><kbd>D</kbd>/<kbd>Mouse</kbd>Steer <kbd>W</kbd>Faster <kbd>Space</kbd>Jump`;}
+  else if(P.ride&&P.ride.drop){msg=touch.on?`Stick: turn &amp; speed · drag to steer · Jump when ready`:`<kbd>A</kbd><kbd>D</kbd>/<kbd>Mouse</kbd>Steer <kbd>Mouse ↑</kbd>Dive <kbd>↓</kbd>Climb <kbd>W</kbd>Faster <kbd>S</kbd>Slower <kbd>Shift</kbd>Boost <kbd>Space</kbd>Jump`;}
   else if(P.ride)msg=P.ride.pos.y>220?'<kbd>Space</kbd>Jump!':'Climbing to jump altitude…';
   else if(P.sky)msg=P.sky.canopy?'<kbd>W</kbd>Glide where you look · <kbd>A</kbd><kbd>D</kbd>Turn · <kbd>S</kbd>Float':P.sky.vel.y>0?'Rocketing up…':'<kbd>W</kbd>Dive where you look · <kbd>Space</kbd>Open glider · <kbd>V</kbd>Spread your wings';
   else if(P.flying)msg='<kbd>Space</kbd>Rise · <kbd>C</kbd>Dive · <kbd>Shift</kbd>Blaze · <kbd>V</kbd>Land';
@@ -3106,6 +3154,7 @@ function drawMinimap(){
   if(state.dream.stage===1)for(const c of dali.clocks)if(!c.got)dot(c.pos,big?3.4:3,'#b07cff');
   if(dali.phone&&state.dream.stage<2)dot(dali.phone.pos,big?3.6:3.2,'#ff3b2e');
   for(const b of dali.elephants)dot(b.g.position,big?4:3.4,'#e6d2b0');
+  if(STADIUM.S){mctx.save();mctx.translate(STADIUM.pos.x,STADIUM.pos.z);mctx.rotate(-STADIUM.rot);mctx.fillStyle='rgba(60,140,60,.85)';mctx.fillRect(-32,-20,64,40);mctx.strokeStyle='rgba(200,170,130,.95)';mctx.lineWidth=3/k;mctx.strokeRect(-46,-33,92,66);mctx.restore();}
   for(const m of masters.pieces){mctx.fillStyle=ARTIST_COL[m.def.artist]||'#fff';const s2=(big?4:3.2)/k;mctx.fillRect(m.pos.x-s2/2,m.pos.z-s2/2,s2,s2);}
   if(J&&J.id==='moop')for(const it of J.items)if(it.visible)dot(it.position,1.6,'#fff2c0');
   const t2=jobTarget();if(t2){mctx.strokeStyle='#ffb35a';mctx.lineWidth=2/k;let tx=t2.x,tz=t2.z;if(!big){const dx=tx-cx,dz=tz-cz,dl=Math.hypot(dx,dz),lim=viewR*.9;if(dl>lim){tx=cx+dx/dl*lim;tz=cz+dz/dl*lim;}}mctx.beginPath();mctx.arc(tx,tz,(5+Math.sin(performance.now()*.008)*1.5)/k,0,TAU);mctx.stroke();}
@@ -3170,7 +3219,7 @@ async function boot(data){
     applySettings();pendingSave=loadSave();
     ready=true;const go=$('#go');go.disabled=false;go.textContent=pendingSave?'Continue the week':'Enter the playa';$('#go2').hidden=!pendingSave;
     $('#load').hidden=true;
-    window.__game={compactProp,aimPoint,weaponTargets,startDrop,clearAir,drop,RG,W,mouse,giveWeapon,equip,holster,setWanted,enterHide,leaveHide,armed,pads,get WP(){return WP;},get PR(){return PR;},CAMP,CENTER,MAN,TEMPLE,exitVehicle,scene,get night(){return night;},LZ,FL,skyFlares,MB,TB,masters,admire,nearPiece,cX,cZ,crowdBurnGather,airport,ambientSky,toggleFly,boardPlane,jumpOut,dali,step(n,dt){for(let i=0;i<n;i++){update(dt||1/60);updateCamera(dt||1/60,false);}},keys,obstaclesNear,settings,applySettings,get crowdVerts(){return crowdMeshes.map(m=>m.geometry.attributes.position.count+'x'+m.count).join(' ');},parkPos,ramps,vehicles,groundHeight,state,P,startGame,startJob,enterVehicle,addKarma,poof,artCars,lamps,GIVERS,openPhone,openPause,renderer,camera,get player(){return player;},cam(y,p,d){camYaw=y;camPitch=p;camDist=d;lastLook=performance.now()+1e6;}};
+    window.__game={STADIUM,stadWorld,stadLocal,inStadium,QUESTS,obstacles,compactProp,aimPoint,weaponTargets,startDrop,clearAir,drop,RG,W,mouse,giveWeapon,equip,holster,setWanted,enterHide,leaveHide,armed,pads,get WP(){return WP;},get PR(){return PR;},CAMP,CENTER,MAN,TEMPLE,exitVehicle,scene,get night(){return night;},LZ,FL,skyFlares,MB,TB,masters,admire,nearPiece,cX,cZ,crowdBurnGather,airport,ambientSky,toggleFly,boardPlane,jumpOut,dali,step(n,dt){for(let i=0;i<n;i++){update(dt||1/60);updateCamera(dt||1/60,false);}},keys,obstaclesNear,settings,applySettings,get crowdVerts(){return crowdMeshes.map(m=>m.geometry.attributes.position.count+'x'+m.count).join(' ');},parkPos,ramps,vehicles,groundHeight,state,P,startGame,startJob,enterVehicle,addKarma,poof,artCars,lamps,GIVERS,openPhone,openPause,renderer,camera,get player(){return player;},cam(y,p,d){camYaw=y;camPitch=p;camDist=d;lastLook=performance.now()+1e6;}};
   }catch(err){
     console.error(err);$('#go').textContent='Could not load the 3D models. Reload to try again.';
   }
