@@ -8,7 +8,7 @@ import { UnrealBloomPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/exam
 import { OutputPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/OutputPass.js/+esm';
 import { ShaderPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/ShaderPass.js/+esm';
 import { mergeGeometries } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/utils/BufferGeometryUtils.js/+esm';
-import { installFX, FX, fxUniforms, fxWrapScene, SKY_FRAG, GRADE_FRAG } from './fx.js';
+import { installFX, FX, fxUniforms, fxWrapScene, SKY_FRAG, GRADE_FRAG } from './fx.js?v=3';
 installFX();
 
 const $ = s => document.querySelector(s);
@@ -2059,9 +2059,9 @@ function updateMotes(dt){
 }
 // ================= THE DROP: every new week starts in the sky =================
 let PR=null;
-async function loadProps(){try{PR=await import('./props.js');if(PR.initProps)PR.initProps({neon,mat,glowMap});}catch(e){console.warn('props.js failed to load',e);PR=null;}}
+async function loadProps(){try{PR=await import('./props.js?v=3');if(PR.initProps)PR.initProps({neon,mat,glowMap});}catch(e){console.warn('props.js failed to load',e);PR=null;}}
 const drop={active:null,plane:null,leaving:null};
-const _dd=new THREE.Vector3();
+const _dd=new THREE.Vector3(),_plV=new THREE.Vector3();
 function dropPlaneModel(){
   if(drop.plane)return drop.plane;let pl;
   if(PR&&PR.buildArtPlane){const b=PR.buildArtPlane();shadowAll(b.g);pl={g:b.g,door:b.door||null,update:b.update||(()=>{})};}
@@ -2080,8 +2080,8 @@ function startDrop(first){
   const pl=dropPlaneModel();
   const a=R(0,TAU),off=R(-220,220);
   const dir=new THREE.Vector3(Math.cos(a),0,Math.sin(a)),side=new THREE.Vector3(-dir.z,0,dir.x);
-  const start=side.clone().multiplyScalar(off).addScaledVector(dir,-900);start.y=first?820:680;
-  const D={t:0,dir,side,start:start.clone(),pos:start.clone(),speed:85,vy:0,bank:0,heading:Math.atan2(dir.x,dir.z),first,len:2500,divers:0,nextDiver:2};
+  const start=side.clone().multiplyScalar(off).addScaledVector(dir,-650);start.y=first?420:380;
+  const D={t:0,dir,side,start:start.clone(),pos:start.clone(),speed:110,vy:0,bank:0,heading:Math.atan2(dir.x,dir.z),first,len:2500,divers:0,nextDiver:2};
   drop.active=D;drop.leaving=null;
   pl.g.visible=true;pl.g.position.copy(start);pl.g.rotation.set(0,D.heading,0);
   P.ride={drop:true,pos:pl.g.position,heading:D.heading,speed:D.speed,vy:0,bank:0,t:0};player.g.visible=false;
@@ -2095,11 +2095,11 @@ function updateDropRide(dt,inp){
   // the player flies the drop plane: A/D (or mouse-free joystick) turn, W/S climb/dive, Shift boost
   const D=drop.active,pl=drop.plane;D.t+=dt;P.ride.t=D.t;
   const turn=(inp.left?1:0)-(inp.right?1:0)-touch.jx,pitch=(inp.fwd?1:0)-(inp.back?1:0)-touch.jy;
-  const want=inp.boost?150:85;D.speed=lerp(D.speed,want,dt*(inp.boost?1.2:.8));
-  D.bank=lerp(D.bank||0,clamp(turn,-1,1)*.6,dt*3);D.heading+=D.bank*dt*1.5;
+  const want=inp.boost?210:110;D.speed=lerp(D.speed,want,dt*(inp.boost?1.2:.8));
+  D.bank=lerp(D.bank||0,clamp(turn,-1,1)*.75,dt*4);D.heading+=D.bank*dt*1.9;
   const r0=Math.hypot(D.pos.x,D.pos.z);
   if(r0>1700){const toC=Math.atan2(-D.pos.x,-D.pos.z);D.heading=lerpAngle(D.heading,toC,dt*.8);if(!D.warned){D.warned=true;toast('Edge of the desert. The plane swings back toward the city.');}}else if(r0<1500)D.warned=false;
-  D.vy=lerp(D.vy||0,clamp(pitch,-1,1)*40,dt*2);D.pos.y=clamp(D.pos.y+D.vy*dt,260,1500);if(D.pos.y<=260||D.pos.y>=1500)D.vy*=.5;
+  D.vy=lerp(D.vy||0,clamp(pitch,-1,1)*55,dt*2.5);D.pos.y=clamp(D.pos.y+D.vy*dt,140,1200);if(D.pos.y<=140||D.pos.y>=1200)D.vy*=.5;_plV.copy(D.dir).multiplyScalar(D.speed);_plV.y=D.vy;
   D.dir.set(Math.sin(D.heading),0,Math.cos(D.heading));
   D.pos.addScaledVector(D.dir,D.speed*dt);P.ride.heading=D.heading;P.ride.speed=D.speed;
   pl.g.rotation.y=D.heading;pl.g.rotation.z=-D.bank+Math.sin(D.t*.6)*.02;pl.g.rotation.x=-Math.atan2(D.vy,D.speed)*.6;
@@ -2141,8 +2141,9 @@ function updateDropFx(dt){
   const S=P.sky;
   if(S&&S.vel.y<0){const gh=groundHeight(P.pos.x,P.pos.z);const tf=clamp((P.pos.y-gh)/Math.max(4,-S.vel.y),0,25);
     landRing.visible=true;landRing.position.set(P.pos.x+S.vel.x*tf*.6,gh+.15,P.pos.z+S.vel.z*tf*.6);const sc=1+clamp((P.pos.y-gh)/250,0,3);landRing.scale.setScalar(sc);landRing.material.opacity=.45+.3*Math.sin(performance.now()*.008);}
+  else if(P.ride&&P.ride.drop&&drop.active){const D=drop.active;const ahead=Math.min(P.pos.y*.18,120);const lx=P.pos.x+D.dir.x*ahead,lz=P.pos.z+D.dir.z*ahead;landRing.visible=true;landRing.position.set(lx,groundHeight(lx,lz)+.15,lz);landRing.scale.setScalar(2+P.pos.y/150);landRing.material.opacity=.45+.3*Math.sin(performance.now()*.008);}
   else landRing.visible=false;
-  const v=S?S.vel:(P.flying?P.fv:null);const sp=v?v.length():0;const k=clamp((sp-22)/40,0,1);
+  const v=S?S.vel:(P.flying?P.fv:(P.ride&&P.ride.drop?_plV:null));const sp=v?v.length():0;const k=clamp((sp-22)/40,0,1);
   if(k<=0){slMesh.visible=false;return;}
   slMesh.visible=true;slMesh.material.opacity=k*.5;const c=camera.position;
   for(let i=0;i<SL_N;i++){const w=slW[i];
@@ -2172,7 +2173,7 @@ function launchUp(){
 
 // ================= ARMED: artsy guns, unlimited ammo, nobody gets hurt =================
 let WP=null;
-async function loadWeapons(){try{WP=await import('./weapons.js');if(WP.initWeapons)WP.initWeapons({glowMap});}catch(e){console.warn('weapons.js failed to load',e);WP=null;}}
+async function loadWeapons(){try{WP=await import('./weapons.js?v=3');if(WP.initWeapons)WP.initWeapons({glowMap});}catch(e){console.warn('weapons.js failed to load',e);WP=null;}}
 const W={sys:null,guns:{},gun:null,def:null,heat:0,over:false,aiming:false,zoom:1,shake:0,nextShot:0,beamOn:false,hitT:0,spin:0,pickups:[]};
 const mouse={l:false,r:false};
 const WDEF=id=>WP&&WP.WEAPONS.find(w=>w.id===id);
@@ -2984,7 +2985,7 @@ function updateDust(dt){
 function updateCamera(dt,cinematic){
   if(cinematic){const a=performance.now()*.00004+2.25;camera.position.set(Math.sin(a)*150,28,Math.cos(a)*150+20);camera.lookAt(0,20,-30);camera.fov=55;camera.updateProjectionMatrix();return;}
   const f=focusPos();const v=P.vehicle;
-  const dist=P.ride?(P.ride.drop?34:26):P.sky?Math.max(camDist,9):P.flying?Math.max(camDist,8):v?(v.kind==='art'?Math.max(camDist,16):Math.max(camDist,6.5)):camDist;
+  const dist=P.ride?(P.ride.drop?24:26):P.sky?Math.max(camDist,9):P.flying?Math.max(camDist,8):v?(v.kind==='art'?Math.max(camDist,16):Math.max(camDist,6.5)):camDist;
   if(P.ride&&performance.now()-lastLook>1400)camYaw=lerpAngle(camYaw,P.ride.heading+Math.PI,dt*1.5);
   const arm=armed();const sh=arm?(W.aiming?.7:.85):0;const shx=Math.cos(camYaw)*sh,shz=-Math.sin(camYaw)*sh;
   const ty=(v?(v.kind==='art'?v.deck+2.5:2):1.6)+(v&&v.kind==='art'?0:f.y)+(arm?.35:0);
