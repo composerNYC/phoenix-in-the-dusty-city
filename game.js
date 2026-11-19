@@ -8,7 +8,7 @@ import { UnrealBloomPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/exam
 import { OutputPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/OutputPass.js/+esm';
 import { ShaderPass } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/postprocessing/ShaderPass.js/+esm';
 import { mergeGeometries } from 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/utils/BufferGeometryUtils.js/+esm';
-import { installFX, FX, fxUniforms, fxWrapScene, SKY_FRAG, GRADE_FRAG } from './fx.js?v=4';
+import { installFX, FX, fxUniforms, fxWrapScene, SKY_FRAG, GRADE_FRAG } from './fx.js?v=6';
 installFX();
 
 const $ = s => document.querySelector(s);
@@ -483,7 +483,12 @@ float gfbm(vec2 p){return gn(p)*.5+gn(p*2.1)*.3+gn(p*4.3)*.2;}`)
   };
   const gg=new THREE.PlaneGeometry(1600,1600);
   const ground=new THREE.Mesh(gg,groundMat);ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
-  const farMat=new THREE.MeshStandardMaterial({color:0xc1ae8e,roughness:1});
+  const farTex=(()=>{const cv=document.createElement('canvas');cv.width=cv.height=512;const x=cv.getContext('2d');x.fillStyle='#c1ae8e';x.fillRect(0,0,512,512);
+    const rr=mulberry32(77);
+    for(let i=0;i<260;i++){const px=rr()*512,py=rr()*512,r=8+rr()*60,l=rr()<.5;const g=x.createRadialGradient(px,py,0,px,py,r);const c=l?'rgba(222,206,178,':'rgba(150,130,100,';g.addColorStop(0,c+(.18+rr()*.22)+')');g.addColorStop(1,c+'0)');x.fillStyle=g;for(const ox of[-512,0,512])for(const oy of[-512,0,512]){x.save();x.translate(ox,oy);x.fillRect(px-r,py-r,r*2,r*2);x.restore();}}
+    x.lineWidth=1.5;for(let i=0;i<18;i++){x.strokeStyle=`rgba(120,100,75,${.15+rr()*.2})`;x.beginPath();let px=rr()*512,py=rr()*512,a=rr()*6.28;x.moveTo(px,py);for(let k=0;k<30;k++){a+=(rr()-.5)*.3;px+=Math.cos(a)*12;py+=Math.sin(a)*12;x.lineTo(px,py);}x.stroke();}
+    const t=new THREE.CanvasTexture(cv);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(70,70);t.anisotropy=8;t.colorSpace=THREE.SRGBColorSpace;return t;})();
+  const farMat=new THREE.MeshStandardMaterial({color:0xffffff,map:farTex,roughness:1});
   const far=new THREE.Mesh(new THREE.RingGeometry(790,6500,64,1),farMat);far.rotation.x=-Math.PI/2;far.position.y=-.3;scene.add(far);
   mapCanvas=document.createElement('canvas');mapCanvas.width=mapCanvas.height=1024;drawLayout(mapCanvas.getContext('2d'),1024,'map');
 
@@ -843,7 +848,7 @@ window.addEventListener('mousedown',e=>{if(document.pointerLockElement!==canvas)
 window.addEventListener('mouseup',e=>{if(e.button===0)mouse.l=false;if(e.button===2)mouse.r=false;});
 canvas.addEventListener('mousedown',()=>{dragging=true;if(state.started&&!state.paused&&document.pointerLockElement!==canvas&&canvas.requestPointerLock){try{const p=canvas.requestPointerLock();if(p&&p.catch)p.catch(()=>{});}catch(_){}}});
 window.addEventListener('mouseup',()=>{dragging=false;});
-window.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas||dragging){camYaw-=e.movementX*.0032*settings.sens;camPitch=clamp(camPitch+e.movementY*.0028*settings.sens*(W.aiming?.55:1)*(settings.invert?-1:1),armed()?-.55:.02,1.25);if(W.aiming)camYaw+=e.movementX*.0032*settings.sens*.45;lastLook=performance.now();}});
+window.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas||dragging){if(P.ride&&P.ride.drop&&drop.active){const D=drop.active;D.stickX=clamp((D.stickX||0)+e.movementX*.006*settings.sens,-1,1);D.stickY=clamp((D.stickY||0)+e.movementY*.006*settings.sens*(settings.invert?-1:1),-1,1);return;}camYaw-=e.movementX*.0032*settings.sens;camPitch=clamp(camPitch+e.movementY*.0028*settings.sens*(W.aiming?.55:1)*(settings.invert?-1:1),armed()?-.55:.02,1.25);if(W.aiming)camYaw+=e.movementX*.0032*settings.sens*.45;lastLook=performance.now();}});
 let wheelAcc=0;canvas.addEventListener('wheel',e=>{e.preventDefault();if(armed()){wheelAcc+=e.deltaY;if(Math.abs(wheelAcc)>40){cycleWeapon(Math.sign(wheelAcc));wheelAcc=0;}return;}camDist=clamp(camDist+e.deltaY*.01,3.5,40);},{passive:false});
 const down=(...c)=>c.some(k=>keys[k]);
 
@@ -955,11 +960,11 @@ function applySettings(){
 }
 function saveGame(){
   if(!state.started)return;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,time:state.time,quest:state.quest,gifts:state.gifts,given:state.given,goggles:state.goggles,wanted:state.wanted,weapons:state.weapons,weapon:state.weapon,glider:state.glider,gliders:state.gliders,sawMan:state.sawMan,sawTemple:state.sawTemple,karma:state.karma,outfit:state.outfit,stats:state.stats,jobsDone:state.jobsDone,lampDay:state.lampDay,dream:{stage:state.dream.stage,got:dali.clocks.filter(c=>c.got).map(c=>c.i)},meltPower:state.meltPower,gallery:state.gallery,unlocks:state.unlocks,x:P.pos.x,z:P.pos.z,heading:P.heading}));}catch(_){}
+  try{localStorage.setItem(SAVE_KEY,JSON.stringify({v:1,time:state.time,quest:state.quest,gifts:state.gifts,given:state.given,goggles:state.goggles,wanted:state.wanted,weapons:state.weapons,weapon:state.weapon,landed:state.landed!==false,glider:state.glider,gliders:state.gliders,sawMan:state.sawMan,sawTemple:state.sawTemple,karma:state.karma,outfit:state.outfit,stats:state.stats,jobsDone:state.jobsDone,lampDay:state.lampDay,dream:{stage:state.dream.stage,got:dali.clocks.filter(c=>c.got).map(c=>c.i)},meltPower:state.meltPower,gallery:state.gallery,unlocks:state.unlocks,x:P.pos.x,z:P.pos.z,heading:P.heading}));}catch(_){}
 }
 function loadSave(){try{const d=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');return d&&d.v===1?d:null;}catch(_){return null;}}
 function clearSave(){try{localStorage.removeItem(SAVE_KEY);}catch(_){}}
-function applySave(d){
+function applySave(d){state.landed=d.landed!==false;
   Object.assign(state,{time:d.time,quest:d.quest||0,gifts:d.gifts||[],given:d.given||0,goggles:!!d.goggles,wanted:d.wanted||0,weapons:d.weapons||[],weapon:d.weapon||null,glider:d.glider||'parachute',gliders:d.gliders||['parachute'],sawMan:!!d.sawMan,sawTemple:!!d.sawTemple,karma:d.karma||0,lampDay:d.lampDay??-1});
   Object.assign(state.stats,d.stats||{});state.meltPower=!!d.meltPower;if(d.gallery)state.gallery=d.gallery;if(d.unlocks)state.unlocks=d.unlocks;if(d.dream){state.dream.stage=d.dream.stage||0;for(const c of dali.clocks)if((d.dream.got||[]).includes(c.i)){c.got=true;if(c.b.clock)c.b.clock.visible=false;}}Object.assign(state.jobsDone,d.jobsDone||{});
   state.manBurnt=state.time>=MB;state.templeBurnt=state.time>=TB;state.nextStorm=state.time+R(1.5,4);
@@ -1428,7 +1433,7 @@ function setupTouch(){
   joy.addEventListener('touchend',end);joy.addEventListener('touchcancel',end);
   let lid=null,lx=0,ly=0;
   canvas.addEventListener('touchstart',e=>{const t=e.changedTouches[0];if(lid===null){lid=t.identifier;lx=t.clientX;ly=t.clientY;}},{passive:true});
-  canvas.addEventListener('touchmove',e=>{e.preventDefault();for(const t of e.changedTouches)if(t.identifier===lid){camYaw-=(t.clientX-lx)*.007*settings.sens;camPitch=clamp(camPitch+(t.clientY-ly)*.005*settings.sens*(settings.invert?-1:1),armed()?-.55:.02,1.25);lx=t.clientX;ly=t.clientY;lastLook=performance.now();}},{passive:false});
+  canvas.addEventListener('touchmove',e=>{e.preventDefault();for(const t of e.changedTouches)if(t.identifier===lid){if(P.ride&&P.ride.drop&&drop.active){const D=drop.active;D.stickX=clamp((D.stickX||0)+(t.clientX-lx)*.012*settings.sens,-1,1);D.stickY=clamp((D.stickY||0)+(t.clientY-ly)*.012*settings.sens*(settings.invert?-1:1),-1,1);lx=t.clientX;ly=t.clientY;continue;}camYaw-=(t.clientX-lx)*.007*settings.sens;camPitch=clamp(camPitch+(t.clientY-ly)*.005*settings.sens*(settings.invert?-1:1),armed()?-.55:.02,1.25);lx=t.clientX;ly=t.clientY;lastLook=performance.now();}},{passive:false});
   const lend=e=>{for(const t of e.changedTouches)if(t.identifier===lid)lid=null;};canvas.addEventListener('touchend',lend);canvas.addEventListener('touchcancel',lend);
   for(const b of document.querySelectorAll('#touchUI [data-k]')){
     b.addEventListener('touchstart',e=>{e.preventDefault();const k=b.dataset.k;if(k==='Run'){touch.run=!touch.run;b.classList.toggle('on',touch.run);return;}if(k==='Space'){touch.jump=true;return;}if(k==='Fire'){mouse.l=true;W.trigger=true;return;}if(k==='Aim'){mouse.r=!mouse.r;b.classList.toggle('on',mouse.r);return;}if(k==='Swap'){cycleWeapon(1);return;}handleKey(k);},{passive:false});
@@ -2059,7 +2064,7 @@ function updateMotes(dt){
 }
 // ================= THE DROP: every new week starts in the sky =================
 let PR=null;
-async function loadProps(){try{PR=await import('./props.js?v=4');if(PR.initProps)PR.initProps({neon,mat,glowMap});}catch(e){console.warn('props.js failed to load',e);PR=null;}}
+async function loadProps(){try{PR=await import('./props.js?v=6');if(PR.initProps)PR.initProps({neon,mat,glowMap});}catch(e){console.warn('props.js failed to load',e);PR=null;}}
 const drop={active:null,plane:null,leaving:null};
 const _dd=new THREE.Vector3(),_plV=new THREE.Vector3();
 function dropPlaneModel(){
@@ -2076,45 +2081,50 @@ function clearAir(){
 }
 function startDrop(first){
   if(P.ride&&P.ride.drop)return;
+  if(first)state.landed=false;
   clearAir();if(P.hidden)leaveHide&&leaveHide(true);
   const pl=dropPlaneModel();
   const a=R(0,TAU),off=R(-220,220);
   const dir=new THREE.Vector3(Math.cos(a),0,Math.sin(a)),side=new THREE.Vector3(-dir.z,0,dir.x);
-  const start=side.clone().multiplyScalar(off).addScaledVector(dir,-650);start.y=first?420:380;
+  const start=side.clone().multiplyScalar(off).addScaledVector(dir,-650);start.y=first?300:280;
   const D={t:0,dir,side,start:start.clone(),pos:start.clone(),speed:110,vy:0,bank:0,heading:Math.atan2(dir.x,dir.z),first,len:2500,divers:0,nextDiver:2};
   drop.active=D;drop.leaving=null;
   pl.g.visible=true;pl.g.position.copy(start);pl.g.rotation.set(0,D.heading,0);
   P.ride={drop:true,pos:pl.g.position,heading:D.heading,speed:D.speed,vy:0,bank:0,t:0};player.g.visible=false;
-  camYaw=D.heading+Math.PI;camPitch=.3;
+  camYaw=D.heading+Math.PI;camPitch=.2;
   if(state.weapon&&W.gun)W.gun.g.visible=false;
   sfx.chime();
   if(first)showTitleCard();
-  toast(first?(touch.on?'You are flying the drop plane. Steer with the stick, tap Jump over a spot you like.':'You are flying the drop plane! Click, then steer with the mouse (or A/D). W faster, S slower. Space to jump.'):'Fly the drop plane anywhere. Space to jump.');
+  toast(first?(touch.on?'You are flying the drop plane. Steer with the stick, tap Jump over a spot you like.':'You are flying the drop plane! A/D to steer (click the screen to steer with the mouse). W faster, S slower. Space to jump.'):'Fly the drop plane anywhere. Space to jump.');
 }
 function updateDropRide(dt,inp){
-  // arcade flight: the plane flies where the camera points (mouse), A/D also turn, W faster, S slower
+  // arcade flight with a chase camera. The plane always flies forward along its nose.
+  // Steering: A/D (or joystick) and the mouse, which acts as a self-centering flight stick
+  // (move right = bank right). Altitude: mouse forward/back (stick Y). W faster, S slower.
   const D=drop.active,pl=drop.plane;D.t+=dt;P.ride.t=D.t;
-  const keyTurn=(inp.left?1:0)-(inp.right?1:0)-touch.jx;
-  camYaw+=clamp(keyTurn,-1,1)*1.4*dt;
+  const sx=D.stickX||0,sy=D.stickY||0;
+  const decay=Math.exp(-dt*2.2);D.stickX=sx*decay;D.stickY=sy*decay;
+  let turn=clamp((inp.left?1:0)-(inp.right?1:0)-touch.jx-sx,-1,1);
   const r0=Math.hypot(D.pos.x,D.pos.z);
-  if(r0>1600){const toC=Math.atan2(-D.pos.x,-D.pos.z)+Math.PI;camYaw=lerpAngle(camYaw,toC,dt*1.2);if(!D.warned){D.warned=true;toast('Edge of the desert. Turning back toward the city.');}}else if(r0<1400)D.warned=false;
-  const target=camYaw+Math.PI,diff=wrapA(target-D.heading);
-  const prevH=D.heading;D.heading=wrapA(D.heading+clamp(diff*2.2*dt,-1.6*dt,1.6*dt));
-  const turnRate=wrapA(D.heading-prevH)/Math.max(dt,1e-4);
-  D.bank=lerp(D.bank||0,clamp(turnRate*.55,-.8,.8),dt*4);
+  if(r0>1600){const toC=Math.atan2(-D.pos.x,-D.pos.z);turn=clamp(wrapA(toC-D.heading)*2,-1,1);if(!D.warned){D.warned=true;toast('Edge of the desert. Turning back toward the city.');}}else if(r0<1400)D.warned=false;
+  D.bank=lerp(D.bank||0,turn*.7,Math.min(1,dt*3.5));
+  D.heading=wrapA(D.heading+D.bank*1.6*dt);
   const thr=(inp.fwd?1:0)-(inp.back?1:0)-touch.jy;
-  const want=inp.boost?230:thr>.3?170:thr<-.3?60:110;D.speed=lerp(D.speed,want,dt*1.1);
-  // mouse up/down: look down to dive, look level to climb
-  const pd=camPitch-.3,vyT=Math.abs(pd)<.05?0:clamp(-(pd-Math.sign(pd)*.05)*220,-75,55);
-  D.vy=lerp(D.vy||0,vyT,dt*2.5);D.pos.y=clamp(D.pos.y+D.vy*dt,140,1200);if(D.pos.y<=140&&D.vy<0||D.pos.y>=1200&&D.vy>0)D.vy=0;
+  const want=inp.boost?230:thr>.3?170:thr<-.3?60:110;D.speed=lerp(D.speed,want,Math.min(1,dt*1.1));
+  const vyT=clamp(sy*1.6,-1,1)*60; // stick forward (mouse up) = nose down
+  D.vy=lerp(D.vy||0,vyT,Math.min(1,dt*2.5));D.pos.y=clamp(D.pos.y+D.vy*dt,120,1000);if(D.pos.y<=120&&D.vy<0||D.pos.y>=1000&&D.vy>0)D.vy=0;
   D.dir.set(Math.sin(D.heading),0,Math.cos(D.heading));
   D.pos.addScaledVector(D.dir,D.speed*dt);P.ride.heading=D.heading;P.ride.speed=D.speed;
   _plV.copy(D.dir).multiplyScalar(D.speed);_plV.y=D.vy;
+  pl.g.position.copy(D.pos); // the model must follow the simulated position (it never did before)
   pl.g.rotation.y=D.heading;pl.g.rotation.z=-D.bank;pl.g.rotation.x=-Math.atan2(D.vy,D.speed)*.8;
   pl.update(dt,performance.now()*.001,{night});
   pl.g.updateMatrixWorld(true);
   if(pl.door){pl.door.getWorldPosition(_dd);}else{_dd.set(0,2,-9);pl.g.localToWorld(_dd);}
   P.pos.copy(_dd);
+  // chase camera: always behind the plane's real heading, slightly above
+  camYaw=lerpAngle(camYaw,D.heading+Math.PI,Math.min(1,dt*6));
+  camPitch=lerp(camPitch,.2-D.vy*.0015,Math.min(1,dt*3));
   const r=Math.hypot(D.pos.x,D.pos.z);
   D.nextDiver-=dt;if(D.nextDiver<=0&&r<560&&D.divers<10){D.nextDiver=R(1.2,3.5);D.divers++;spawnDiver(_dd,D.heading+Math.PI);}
   if(inp.jumpEdge&&D.t>.8)dropJump();
@@ -2151,11 +2161,12 @@ function updateDropFx(dt){
     landRing.visible=true;landRing.position.set(P.pos.x+S.vel.x*tf*.6,gh+.15,P.pos.z+S.vel.z*tf*.6);const sc=1+clamp((P.pos.y-gh)/250,0,3);landRing.scale.setScalar(sc);landRing.material.opacity=.45+.3*Math.sin(performance.now()*.008);}
   else if(P.ride&&P.ride.drop&&drop.active){const D=drop.active;const ahead=Math.min(P.pos.y*.18,120);const lx=P.pos.x+D.dir.x*ahead,lz=P.pos.z+D.dir.z*ahead;landRing.visible=true;landRing.position.set(lx,groundHeight(lx,lz)+.15,lz);landRing.scale.setScalar(2+P.pos.y/150);landRing.material.opacity=.45+.3*Math.sin(performance.now()*.008);}
   else landRing.visible=false;
-  const v=S?S.vel:(P.flying?P.fv:(P.ride&&P.ride.drop?_plV:null));const sp=v?v.length():0;const k=v===_plV?clamp((sp-125)/90,0,.8):clamp((sp-22)/40,0,1);
+  const v=S?S.vel:(P.flying?P.fv:(P.ride&&P.ride.drop?_plV:null));const sp=v?v.length():0;const k=v===_plV?clamp(.25+(sp-110)/120,.25,.8):clamp((sp-22)/40,0,1);
   if(k<=0){slMesh.visible=false;return;}
   slMesh.visible=true;slMesh.material.opacity=k*.5;const c=camera.position;
   for(let i=0;i<SL_N;i++){const w=slW[i];
-    if(w.distanceToSquared(c)>22*22){w.set(c.x+R(-14,14),c.y+R(-14,14),c.z+R(-14,14)).addScaledVector(v,.35);}
+    const isp=1/Math.max(sp,1),ah=(w.x-c.x)*v.x*isp+(w.y-c.y)*v.y*isp+(w.z-c.z)*v.z*isp;
+    if(ah<-3||w.distanceToSquared(c)>48*48){w.set(c.x+R(-16,16),c.y+R(-10,10),c.z+R(-16,16)).addScaledVector(v,R(12,42)*isp);}
     const o=i*6,ln=.045;slP[o]=w.x;slP[o+1]=w.y;slP[o+2]=w.z;slP[o+3]=w.x-v.x*ln;slP[o+4]=w.y-v.y*ln;slP[o+5]=w.z-v.z*ln;}
   slMesh.geometry.attributes.position.needsUpdate=true;
 }
@@ -2181,7 +2192,7 @@ function launchUp(){
 
 // ================= ARMED: artsy guns, unlimited ammo, nobody gets hurt =================
 let WP=null;
-async function loadWeapons(){try{WP=await import('./weapons.js?v=4');if(WP.initWeapons)WP.initWeapons({glowMap});}catch(e){console.warn('weapons.js failed to load',e);WP=null;}}
+async function loadWeapons(){try{WP=await import('./weapons.js?v=6');if(WP.initWeapons)WP.initWeapons({glowMap});}catch(e){console.warn('weapons.js failed to load',e);WP=null;}}
 const W={sys:null,guns:{},gun:null,def:null,heat:0,over:false,aiming:false,zoom:1,shake:0,nextShot:0,beamOn:false,hitT:0,spin:0,pickups:[]};
 const mouse={l:false,r:false};
 const WDEF=id=>WP&&WP.WEAPONS.find(w=>w.id===id);
@@ -2517,7 +2528,7 @@ function useRack(k){
 }
 
 function unlockGlider(){const order=['parachute','phoenix','butterfly','balloon'];state.gliders=state.gliders||['parachute'];const next=order.find(x=>!state.gliders.includes(x));const n=state.stats.skydives||0;if(next&&n>=order.indexOf(next)*2-1){state.gliders.push(next);state.glider=next;const gl=PR&&PR.GLIDERS&&PR.GLIDERS.find(x=>x.id===next);setTimeout(()=>stuntText('New glider: '+(gl?gl.name:next),'Equipped. Change it in the phone wardrobe (Tab).'),2600);}}
-function onDropLanded(first){
+function onDropLanded(first){state.landed=true;
   RG.grace=first?50:20;for(const r of RG.list){if(d2(r.pos,P.pos)<70&&r.st!=='chase'){r.pos.copy(rangerSpawnPoint(90,170));newPatrol(r);}}
   if(WP&&!state.weapons.includes(WP.START_WEAPON)){setTimeout(()=>giveWeapon(WP.START_WEAPON),900);}
   if(first)setTimeout(()=>toast('Welcome home, Phoenix. Word is the Rangers are looking for a fiery bird-person. Keep your head down, find your camp, and press B any time to call the drop plane back.'),3200);
@@ -3028,7 +3039,7 @@ function updateHUD(){
   const dt2=dreamText();$('#dream').hidden=!dt2;if(dt2)$('#dtext').textContent=dt2;
   const sd=$('#side');sd.hidden=!state.job;if(state.job){$('#stitle').textContent=JOB_INFO[state.job.id].title;$('#stext').textContent=jobText(state.job);}
   let msg='';
-  if(P.ride&&P.ride.drop){msg=touch.on?`Stick: turn &amp; speed · drag to steer · Jump when ready`:`<kbd>Mouse</kbd>Steer (look down = dive) <kbd>A</kbd><kbd>D</kbd>Turn <kbd>W</kbd>Faster <kbd>S</kbd>Slower <kbd>Shift</kbd>Boost <kbd>Space</kbd>Jump`;}
+  if(P.ride&&P.ride.drop){msg=touch.on?`Stick: turn &amp; speed · drag to steer · Jump when ready`:`<kbd>A</kbd><kbd>D</kbd>/<kbd>Mouse</kbd>Steer <kbd>Mouse ↑</kbd>Dive <kbd>↓</kbd>Climb <kbd>W</kbd>Faster <kbd>S</kbd>Slower <kbd>Shift</kbd>Boost <kbd>Space</kbd>Jump`;}
   else if(P.ride)msg=P.ride.pos.y>220?'<kbd>Space</kbd>Jump!':'Climbing to jump altitude…';
   else if(P.sky)msg=P.sky.canopy?'<kbd>W</kbd>Glide where you look · <kbd>A</kbd><kbd>D</kbd>Turn · <kbd>S</kbd>Float':P.sky.vel.y>0?'Rocketing up…':'<kbd>W</kbd>Dive where you look · <kbd>Space</kbd>Open glider · <kbd>V</kbd>Spread your wings';
   else if(P.flying)msg='<kbd>Space</kbd>Rise · <kbd>C</kbd>Dive · <kbd>Shift</kbd>Blaze · <kbd>V</kbd>Land';
@@ -3118,10 +3129,12 @@ function startGame(useSave){
   sizeMinimap();
   state.paused=false;
   if(!state.started){state.started=true;camera.position.set(P.pos.x+20,12,P.pos.z+30);
-    if(resumed){toast(`Welcome back, Phoenix. It’s ${fmtTime(state.time)}.`);if(WP&&!state.weapons.length)state.weapons.push(WP.START_WEAPON);if(state.weapon&&WP)equip(state.weapon,true);renderHotbar();}
+    if(resumed&&state.landed===false){startDrop(true);}
+    else if(resumed){toast(`Welcome back, Phoenix. It’s ${fmtTime(state.time)}.`);if(WP&&!state.weapons.length)state.weapons.push(WP.START_WEAPON);if(state.weapon&&WP)equip(state.weapon,true);renderHotbar();}
     else startDrop(true);
     saveGame();}
   canvas.focus();
+  if(!touch.on&&P.ride&&P.ride.drop&&canvas.requestPointerLock){try{const pr=canvas.requestPointerLock();if(pr&&pr.catch)pr.catch(()=>{});}catch(_){}}
 }
 $('#go').addEventListener('click',()=>startGame(true));
 $('#go2').addEventListener('click',()=>{clearSave();pendingSave=null;startGame(false);});
